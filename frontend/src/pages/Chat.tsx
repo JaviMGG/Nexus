@@ -13,6 +13,8 @@ import {
   MessageSquarePlus,
   MessagesSquare,
   MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Sparkles,
   Trash2,
@@ -98,6 +100,16 @@ export function ChatPage() {
   const [renameTarget, setRenameTarget] = useState<Conversation | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
+  const [panelCollapsed, setPanelCollapsed] = useState(
+    () => localStorage.getItem("nexus-chat-panel") === "collapsed",
+  );
+
+  const togglePanel = () => {
+    setPanelCollapsed((v) => {
+      localStorage.setItem("nexus-chat-panel", v ? "expanded" : "collapsed");
+      return !v;
+    });
+  };
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -210,36 +222,53 @@ export function ChatPage() {
 
   return (
     <div className="flex h-full animate-fade-in">
-      <aside className="flex w-72 shrink-0 flex-col border-r border-border bg-card/50">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold">Conversaciones</h2>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="icon-sm" variant="ghost" aria-label="Nueva conversación">
-                <MessageSquarePlus />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>Nueva conversación con…</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {(agents.data ?? []).map((a) => (
-                <DropdownMenuItem
-                  key={a.id}
-                  onClick={() => createConversation.mutate(a.id)}
-                  disabled={createConversation.isPending}
-                >
-                  <Sparkles className="text-primary" />
-                  {a.name}
-                </DropdownMenuItem>
-              ))}
-              {(agents.data ?? []).length === 0 && (
-                <DropdownMenuItem onClick={() => createConversation.mutate("orchestrator")}>
-                  <Sparkles className="text-primary" /> NEXUS Orchestrator
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+      <aside
+        className={cn(
+          "flex shrink-0 flex-col overflow-hidden border-r border-border bg-card/50 transition-[width] duration-200",
+          panelCollapsed ? "w-12" : "w-72",
+        )}
+      >
+        <div className={cn("flex items-center border-b border-border py-3", panelCollapsed ? "flex-col gap-1 px-0" : "justify-between px-4")}>
+          {!panelCollapsed && <h2 className="text-sm font-semibold">Conversaciones</h2>}
+          <div className={cn("flex items-center gap-0.5", panelCollapsed && "flex-col")}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon-sm" variant="ghost" aria-label="Nueva conversación">
+                  <MessageSquarePlus />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Nueva conversación con…</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {(agents.data ?? []).map((a) => (
+                  <DropdownMenuItem
+                    key={a.id}
+                    onClick={() => createConversation.mutate(a.id)}
+                    disabled={createConversation.isPending}
+                  >
+                    <Sparkles className="text-primary" />
+                    {a.name}
+                  </DropdownMenuItem>
+                ))}
+                {(agents.data ?? []).length === 0 && (
+                  <DropdownMenuItem onClick={() => createConversation.mutate("orchestrator")}>
+                    <Sparkles className="text-primary" /> NEXUS Orchestrator
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              onClick={togglePanel}
+              aria-label={panelCollapsed ? "Mostrar conversaciones" : "Minimizar conversaciones"}
+              title={panelCollapsed ? "Mostrar conversaciones" : "Minimizar conversaciones"}
+            >
+              {panelCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+            </Button>
+          </div>
         </div>
+        {!panelCollapsed && (
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {conversations.isLoading ? (
             <div className="space-y-2 p-1">
@@ -297,6 +326,7 @@ export function ChatPage() {
             </ul>
           )}
         </div>
+        )}
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">

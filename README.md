@@ -1,8 +1,8 @@
 # NEXUS — Centro de control personal inteligente
 
-NEXUS es tu segundo cerebro: tareas, proyectos, notas con búsqueda full-text, captura rápida,
-chat con IA y un **sistema multiagente real** (orquestador + agentes especializados que ejecutan
-herramientas sobre tus datos), todo en una aplicación de escritorio premium construida con
+NEXUS es tu segundo cerebro: tareas, proyectos, calendario, notas con búsqueda full-text, captura
+rápida, chat con IA y un **sistema multiagente real** (orquestador + agentes especializados que
+ejecutan herramientas sobre tus datos), todo en una aplicación de escritorio premium construida con
 **Rust + Tauri 2 + React + TypeScript**.
 
 La IA es el cerebro, pero **NEXUS funciona al 100% sin ella**: sin proveedor conectado, todas las
@@ -25,8 +25,9 @@ funciones manuales siguen disponibles y la app lo indica claramente (modo degrad
   búsqueda **FTS5** de SQLite, fijado de notas, etiquetas.
 - **Inbox / Captura rápida** (⌘K desde cualquier pantalla): la IA detecta si es tarea o nota y
   extrae título, fecha límite y prioridad; sin IA, una heurística local en español hace lo mismo.
-- **Chat IA**: conversaciones, selección de agente, **streaming** de respuestas, visualización de
-  herramientas usadas, aprobación/rechazo de acciones sensibles, cancelación de ejecuciones.
+- **Chat IA**: conversaciones con panel lateral minimizable, selección de agente, **streaming**
+  de respuestas, visualización de herramientas usadas, aprobación/rechazo de acciones sensibles,
+  cancelación de ejecuciones.
 - **Agentes**: Orchestrator, Planner, Project Manager, Knowledge, Researcher y Executor, con
   prompts, herramientas y permisos propios; delegación real entre agentes.
 - **Actividad**: ejecuciones con trazabilidad de herramientas, aprobaciones pendientes,
@@ -191,6 +192,8 @@ node scripts/e2e.mjs            # 28 comprobaciones: CRUD, FTS, captura sin IA, 
 
 ```
 Nexus/
+├── install.sh            # Instalador interactivo (nativa / web / ambas) + --uninstall
+├── .env.example          # Plantilla de configuración (QWEN_API_KEY, puerto, etc.)
 ├── crates/
 │   ├── nexus-core/       # Dominio puro: entidades, DTOs, errores, eventos
 │   ├── nexus-db/         # SQLite + SQLx: migraciones y repositorios
@@ -205,6 +208,19 @@ Nexus/
 ├── scripts/e2e.mjs       # Prueba E2E del API real
 └── docs/ARCHITECTURE.md  # Arquitectura del monolito modular
 ```
+
+## Actualizar una instalación existente
+
+Tras cambiar el código:
+
+```bash
+./install.sh                        # vuelve a compilar e instala (elige el mismo modo)
+# o manualmente:
+cargo build --release -p nexus-desktop
+cp target/release/nexus-desktop ~/.local/bin/nexus.new && mv -f ~/.local/bin/nexus.new ~/.local/bin/nexus
+```
+
+Las migraciones de base de datos se aplican automáticamente al arrancar; tus datos se conservan.
 
 ## Limitaciones conocidas
 
