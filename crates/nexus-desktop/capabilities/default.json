@@ -1,0 +1,1 @@
+{"identifier": "default", "description": "Permisos por defecto de la ventana principal de NEXUS", "windows": ["main"], "permissions": ["core:default"]}

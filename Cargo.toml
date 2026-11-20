@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = ["crates/nexus-core", "crates/nexus-db", "crates/nexus-services", "crates/nexus-ai", "crates/nexus-tools", "crates/nexus-agents", "crates/nexus-app", "crates/nexus-api", "crates/nexus-desktop"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+nexus-core = { path = "crates/nexus-core" }
+nexus-db = { path = "crates/nexus-db" }
+nexus-services = { path = "crates/nexus-services" }
+nexus-ai = { path = "crates/nexus-ai" }
+nexus-tools = { path = "crates/nexus-tools" }
+nexus-agents = { path = "crates/nexus-agents" }
+nexus-app = { path = "crates/nexus-app" }
+nexus-api = { path = "crates/nexus-api" }
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "chrono", "migrate", "macros"] }
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+futures = "0.3"
+async-trait = "0.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenvy = "0.15"
+regex = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

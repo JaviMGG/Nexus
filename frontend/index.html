@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es" class="dark" data-palette="violet">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NEXUS</title>
+    <script>
+      try {
+        var s = JSON.parse(localStorage.getItem("nexus-theme") || "{}");
+        var t = (s.state && s.state.theme) || "dark";
+        var p = (s.state && s.state.palette) || "violet";
+        document.documentElement.classList.toggle("dark", t === "dark");
+        document.documentElement.classList.toggle("light", t === "light");
+        document.documentElement.dataset.palette = p;
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

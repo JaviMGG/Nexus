@@ -1,0 +1,21 @@
+[package]
+name = "nexus-app"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexus-core.workspace = true
+nexus-db.workspace = true
+nexus-services.workspace = true
+nexus-ai.workspace = true
+nexus-tools.workspace = true
+nexus-agents.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+dotenvy.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }

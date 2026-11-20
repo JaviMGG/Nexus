@@ -1,0 +1,11 @@
+target/
+node_modules/
+dist/
+.env
+*.sqlite
+*.sqlite-*
+data/
+backups/
+.DS_Store
+frontend/src-tauri/gen/
+crates/nexus-desktop/gen/
