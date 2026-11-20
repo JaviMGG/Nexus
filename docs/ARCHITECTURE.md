@@ -141,8 +141,10 @@ Tablas: `projects`, `tasks` (jerárquicas, soft-delete), `events` (calendario), 
 - **Estado servidor**: TanStack Query; las mutaciones invalidan keys y los eventos SSE
   (`useAppEvents`) mantienen todo sincronizado en vivo, incluido el streaming del chat.
 - **Estado cliente**: Zustand (`theme`, `ui`).
-- **Temas y paletas**: variables CSS (`--background`, `--primary`, `--accent`, …) con 6 paletas ×
-  dark/light definidas en `index.css`; Tailwind 4 las mapea con `@theme inline`. El store aplica
+- **Temas y paletas**: variables CSS (`--background`, `--primary`, `--accent`, …) con 14 paletas ×
+  dark/light definidas en `index.css` (6 básicas de acento + 8 curadas de tema completo: Nord,
+  Dracula, Tokyo Night, Catppuccin, Gruvbox, Everforest, Kanagawa, Cyberpunk); Tailwind 4 las
+  mapea con `@theme inline`. El store aplica
   `data-palette` + clase `dark/light` al instante, persiste en localStorage (anti-flash en
   `index.html`) y sincroniza con el backend (`settings.update`).
 - **Transporte**: un único cliente `invoke()` funciona en Tauri (puerto dinámico + token) y en

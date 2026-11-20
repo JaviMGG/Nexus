@@ -32,7 +32,7 @@ funciones manuales siguen disponibles y la app lo indica claramente (modo degrad
   prompts, herramientas y permisos propios; delegación real entre agentes.
 - **Actividad**: ejecuciones con trazabilidad de herramientas, aprobaciones pendientes,
   auditoría completa con **deshacer** operaciones.
-- **Ajustes**: perfil, **6 paletas de colores intercambiables** + dark/light, proveedores de IA
+- **Ajustes**: perfil, **14 paletas de colores intercambiables** + dark/light, proveedores de IA
   (API key, base URL, modelo, prueba de conexión), permisos de agentes, límites de uso,
   exportación JSON y copias de seguridad con restauración.
 
@@ -160,9 +160,17 @@ rápida usa análisis heurístico local. Ningún error por falta de API key.
 
 ## Paletas de colores
 
-6 paletas (**Violet, Graphite, Ocean, Forest, Sunset, Rose**) × modos **dark/light**.
-Cámbialas desde el selector del sidebar o desde **Ajustes → Apariencia**. La elección se
-persiste en el backend y se aplica al instante mediante variables CSS.
+**14 paletas** × modos **dark/light**:
+
+- **Básicas**: Violet, Graphite, Ocean, Forest, Sunset, Rose.
+- **Curadas** (temas completos con superficies, bordes y acentos propios, inspirados en esquemas
+  clásicos): **Nord** (azul ártico), **Dracula** (púrpura nocturno), **Tokyo Night** (neón azul),
+  **Catppuccin** (pasteles Mocha/Latte), **Gruvbox** (retro cálido), **Everforest** (bosque
+  brumoso), **Kanagawa** (ola japonesa) y **Cyberpunk** (magenta/cian eléctrico).
+
+Cámbialas desde el selector del sidebar o desde **Ajustes → Apariencia**, donde cada paleta
+incluye una mini-previsualización real de la interfaz. La elección se persiste en el backend y
+se aplica al instante mediante variables CSS.
 
 ## Tests y verificación
 

@@ -37,9 +37,17 @@ export function PaletteSwitcher({ compact = false }: { compact?: boolean }) {
         </TooltipTrigger>
         <TooltipContent side="top">Cambiar paleta de colores</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent side="top" align="start" className="w-44">
-        <DropdownMenuLabel>Paleta de colores</DropdownMenuLabel>
-        {PALETTES.map((p) => (
+      <DropdownMenuContent side="top" align="start" className="w-52 max-h-[60vh] overflow-y-auto">
+        <DropdownMenuLabel>Básicas</DropdownMenuLabel>
+        {PALETTES.filter((p) => p.group === "basicas").map((p) => (
+          <DropdownMenuItem key={p.id} onClick={() => setPalette(p.id)}>
+            <span className="h-3.5 w-3.5 rounded-full border border-black/20" style={{ background: p.swatch }} />
+            <span className="flex-1">{p.name}</span>
+            {palette === p.id && <Check className="h-3.5 w-3.5 text-primary" />}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuLabel>Curadas</DropdownMenuLabel>
+        {PALETTES.filter((p) => p.group === "curadas").map((p) => (
           <DropdownMenuItem key={p.id} onClick={() => setPalette(p.id)}>
             <span className="h-3.5 w-3.5 rounded-full border border-black/20" style={{ background: p.swatch }} />
             <span className="flex-1">{p.name}</span>

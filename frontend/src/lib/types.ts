@@ -400,16 +400,66 @@ export type AppEvent =
   | { type: "ai_status_changed"; status: AiStatus }
   | { type: "data_changed"; entity: string };
 
-export const PALETTES = [
-  { id: "violet", name: "Violet", swatch: "#8b5cf6" },
-  { id: "graphite", name: "Graphite", swatch: "#a1a1aa" },
-  { id: "ocean", name: "Ocean", swatch: "#38bdf8" },
-  { id: "forest", name: "Forest", swatch: "#34d399" },
-  { id: "sunset", name: "Sunset", swatch: "#fb923c" },
-  { id: "rose", name: "Rose", swatch: "#fb7185" },
-] as const;
+export interface PaletteDef {
+  id: string;
+  name: string;
+  swatch: string;
+  group: "basicas" | "curadas";
+  description?: string;
+  /** Colores reales del tema oscuro para la mini-previsualización [fondo, tarjeta, primario, acento] */
+  preview: [string, string, string, string];
+}
 
-export type PaletteId = (typeof PALETTES)[number]["id"];
+export const PALETTES: PaletteDef[] = [
+  { id: "violet", name: "Violet", swatch: "#8b5cf6", group: "basicas", preview: ["#0b0a12", "#12111a", "#8b5cf6", "#c4b5fd"] },
+  { id: "graphite", name: "Graphite", swatch: "#a1a1aa", group: "basicas", preview: ["#0a0a0b", "#111113", "#d4d4d8", "#71717a"] },
+  { id: "ocean", name: "Ocean", swatch: "#38bdf8", group: "basicas", preview: ["#081018", "#0d1722", "#38bdf8", "#7dd3fc"] },
+  { id: "forest", name: "Forest", swatch: "#34d399", group: "basicas", preview: ["#07120d", "#0c1a13", "#34d399", "#6ee7b7"] },
+  { id: "sunset", name: "Sunset", swatch: "#fb923c", group: "basicas", preview: ["#140d08", "#1c130c", "#fb923c", "#fdba74"] },
+  { id: "rose", name: "Rose", swatch: "#fb7185", group: "basicas", preview: ["#140a10", "#1c0f16", "#fb7185", "#fda4af"] },
+  {
+    id: "nord", name: "Nord", swatch: "#88c0d0", group: "curadas",
+    description: "Azul ártico sereno, inspirado en el tema Nord",
+    preview: ["#242933", "#2e3440", "#88c0d0", "#81a1c1"],
+  },
+  {
+    id: "dracula", name: "Dracula", swatch: "#bd93f9", group: "curadas",
+    description: "Púrpura nocturno con acentos cian y rosa",
+    preview: ["#191a21", "#21222c", "#bd93f9", "#ff79c6"],
+  },
+  {
+    id: "tokyo", name: "Tokyo Night", swatch: "#7aa2f7", group: "curadas",
+    description: "Noche de neón azul sobre índigo profundo",
+    preview: ["#16161e", "#1a1b26", "#7aa2f7", "#bb9af7"],
+  },
+  {
+    id: "catppuccin", name: "Catppuccin", swatch: "#cba6f7", group: "curadas",
+    description: "Pasteles suaves sobre base mauve (Mocha)",
+    preview: ["#11111b", "#181825", "#cba6f7", "#f5c2e7"],
+  },
+  {
+    id: "gruvbox", name: "Gruvbox", swatch: "#d79921", group: "curadas",
+    description: "Retro cálido: mostaza, tierra y verde oliva",
+    preview: ["#1d2021", "#282828", "#d79921", "#b8bb26"],
+  },
+  {
+    id: "everforest", name: "Everforest", swatch: "#a7c080", group: "curadas",
+    description: "Bosque brumoso, verdes apagados y cálidos",
+    preview: ["#272e33", "#2d353b", "#a7c080", "#dbbc7f"],
+  },
+  {
+    id: "kanagawa", name: "Kanagawa", swatch: "#7e9cd8", group: "curadas",
+    description: "Ola japonesa: índigo, oro viejo y sakura",
+    preview: ["#16161d", "#1f1f28", "#7e9cd8", "#dcd7ba"],
+  },
+  {
+    id: "cyberpunk", name: "Cyberpunk", swatch: "#ff2a6d", group: "curadas",
+    description: "Neón magenta y cian eléctrico sobre negro",
+    preview: ["#0a0a12", "#10101c", "#ff2a6d", "#05d9e8"],
+  },
+];
+
+export type PaletteId = string;
 
 export const EVENT_COLORS: { id: EventColor; label: string }[] = [
   { id: "primary", label: "Principal" },
