@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use nexus_agents::{AgentRegistry, ExecutionEngine};
 use nexus_ai::ProviderRegistry;
+use nexus_automation::AutomationManager;
 use nexus_core::{AppEvent, Result};
 use nexus_db::Db;
 use nexus_services::Services;
@@ -15,6 +16,7 @@ pub struct AppContext {
     pub tools: Arc<ToolRegistry>,
     pub agents: Arc<AgentRegistry>,
     pub engine: Arc<ExecutionEngine>,
+    pub automation: Arc<AutomationManager>,
     pub events: broadcast::Sender<AppEvent>,
     pub data_dir: PathBuf,
 }
@@ -39,15 +41,42 @@ impl AppContext {
             events.clone(),
         );
         engine.recover_stale_runs().await?;
+        let automation = AutomationManager::new(
+            services.clone(),
+            providers.clone(),
+            engine.clone(),
+            agents.clone(),
+            events.clone(),
+        );
+        automation.recover().await?;
+        automation.start();
         Ok(Self {
             services,
             providers,
             tools,
             agents,
             engine,
+            automation,
             events,
             data_dir,
         })
+    }
+
+    /// Emite un evento de dominio para el Automation Engine y, si aplica,
+    /// el data_changed clásico para el frontend.
+    pub fn domain_event(
+        &self,
+        event: &str,
+        entity: &str,
+        entity_id: Option<&str>,
+        data: serde_json::Value,
+    ) {
+        self.emit(AppEvent::DomainEvent {
+            event: event.to_string(),
+            entity: entity.to_string(),
+            entity_id: entity_id.map(str::to_string),
+            data,
+        });
     }
 
     pub fn emit(&self, event: AppEvent) {

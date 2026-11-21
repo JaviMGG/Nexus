@@ -1,4 +1,5 @@
 pub mod activity;
+pub mod automations;
 pub mod chat;
 pub mod events;
 pub mod inbox;

@@ -460,6 +460,27 @@ impl Default for UsageLimits {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutomationSettings {
+    /// Interruptor global del motor (las automatizaciones locales siguen
+    /// funcionando aunque la IA no esté disponible).
+    pub enabled: bool,
+    /// Presupuesto diario de tokens para todas las automatizaciones.
+    pub daily_token_limit: i64,
+    /// Zona horaria IANA por defecto; None = hora local del sistema.
+    pub timezone: Option<String>,
+}
+
+impl Default for AutomationSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            daily_token_limit: 100_000,
+            timezone: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub user_name: String,
     pub theme: String,
@@ -467,6 +488,8 @@ pub struct AppSettings {
     pub permissions: AgentPermissions,
     pub limits: UsageLimits,
     pub default_provider: Option<Id>,
+    #[serde(default)]
+    pub automations: AutomationSettings,
 }
 
 impl Default for AppSettings {
@@ -478,6 +501,7 @@ impl Default for AppSettings {
             permissions: AgentPermissions::default(),
             limits: UsageLimits::default(),
             default_provider: None,
+            automations: AutomationSettings::default(),
         }
     }
 }
@@ -614,5 +638,23 @@ pub enum AppEvent {
     },
     DataChanged {
         entity: String,
+    },
+    /// Evento interno de dominio para el Automation Engine (entity + id + datos).
+    DomainEvent {
+        event: String,
+        entity: String,
+        entity_id: Option<Id>,
+        data: serde_json::Value,
+    },
+    AutomationExecutionUpdated {
+        execution: crate::automation::AutomationExecution,
+    },
+    AutomationApprovalRequested {
+        approval: crate::automation::AutomationApproval,
+    },
+    Notification {
+        title: String,
+        body: String,
+        automation_id: Option<Id>,
     },
 }

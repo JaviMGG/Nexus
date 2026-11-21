@@ -49,15 +49,26 @@ pub async fn dispatch(ctx: &AppContext, command: &str, payload: Value) -> Result
         "tasks.create" => {
             let t = s.tasks.create(arg(&payload, "data")?, "user").await?;
             ctx.data_changed("task");
+            ctx.domain_event("task.created", "task", Some(&t.id), json!(t));
             ok(t)
         }
         "tasks.update" => {
             let id: String = arg(&payload, "id")?;
+            let before = repos::tasks::get(&s.db, &id).await.ok();
             let t = s
                 .tasks
                 .update(&id, arg::<UpdateTask>(&payload, "data")?, "user")
                 .await?;
             ctx.data_changed("task");
+            ctx.domain_event("task.updated", "task", Some(&t.id), json!(t));
+            if t.status == TaskStatus::Done
+                && before
+                    .as_ref()
+                    .map(|b| b.status != TaskStatus::Done)
+                    .unwrap_or(true)
+            {
+                ctx.domain_event("task.completed", "task", Some(&t.id), json!(t));
+            }
             ok(t)
         }
         "tasks.delete" => {
@@ -79,8 +90,17 @@ pub async fn dispatch(ctx: &AppContext, command: &str, payload: Value) -> Result
             let id: String = arg(&payload, "id")?;
             let status: TaskStatus = arg(&payload, "status")?;
             let position: i64 = arg(&payload, "position")?;
+            let before = repos::tasks::get(&s.db, &id).await.ok();
             let t = s.tasks.reorder(&id, status, position, "user").await?;
             ctx.data_changed("task");
+            if t.status == TaskStatus::Done
+                && before
+                    .as_ref()
+                    .map(|b| b.status != TaskStatus::Done)
+                    .unwrap_or(true)
+            {
+                ctx.domain_event("task.completed", "task", Some(&t.id), json!(t));
+            }
             ok(t)
         }
 
@@ -100,15 +120,40 @@ pub async fn dispatch(ctx: &AppContext, command: &str, payload: Value) -> Result
                 .create(arg::<CreateProject>(&payload, "data")?, "user")
                 .await?;
             ctx.data_changed("project");
+            ctx.domain_event("project.created", "project", Some(&p.id), json!(p));
+            if !p.goal.trim().is_empty() {
+                ctx.domain_event("goal.created", "project", Some(&p.id), json!(p));
+            }
             ok(p)
         }
         "projects.update" => {
             let id: String = arg(&payload, "id")?;
+            let before = repos::projects::get(&s.db, &id).await.ok();
             let p = s
                 .projects
                 .update(&id, arg::<UpdateProject>(&payload, "data")?, "user")
                 .await?;
             ctx.data_changed("project");
+            if before
+                .as_ref()
+                .map(|b| b.status != p.status)
+                .unwrap_or(false)
+            {
+                ctx.domain_event(
+                    "project.status_changed",
+                    "project",
+                    Some(&p.id),
+                    json!({"id": p.id, "name": p.name, "status": p.status, "previous_status": before.as_ref().map(|b| b.status)}),
+                );
+            }
+            if !p.goal.trim().is_empty()
+                && before
+                    .as_ref()
+                    .map(|b| b.goal.trim().is_empty())
+                    .unwrap_or(false)
+            {
+                ctx.domain_event("goal.created", "project", Some(&p.id), json!(p));
+            }
             ok(p)
         }
         "projects.delete" => {
@@ -144,6 +189,11 @@ pub async fn dispatch(ctx: &AppContext, command: &str, payload: Value) -> Result
                 .create(arg::<CreateNote>(&payload, "data")?, "user")
                 .await?;
             ctx.data_changed("note");
+            if n.kind == nexus_core::NoteKind::Idea {
+                ctx.domain_event("idea.created", "note", Some(&n.id), json!(n));
+            } else {
+                ctx.domain_event("note.created", "note", Some(&n.id), json!(n));
+            }
             ok(n)
         }
         "notes.update" => {
@@ -381,6 +431,99 @@ pub async fn dispatch(ctx: &AppContext, command: &str, payload: Value) -> Result
         "agents.approvals" => {
             let status: Option<ApprovalStatus> = opt_arg(&payload, "status")?;
             ok(repos::runs::list_approvals(&s.db, status).await?)
+        }
+
+        // ------------------------------------------------------------- automations
+        "automations.list" => {
+            let enabled_only = opt_arg(&payload, "enabled_only")?.unwrap_or(false);
+            ok(ctx.automation.list(enabled_only).await?)
+        }
+        "automations.get" => ok(ctx.automation.get(&arg::<String>(&payload, "id")?).await?),
+        "automations.create" => ok(ctx.automation.create(arg(&payload, "data")?).await?),
+        "automations.update" => {
+            let id: String = arg(&payload, "id")?;
+            ok(ctx.automation.update(&id, arg(&payload, "data")?).await?)
+        }
+        "automations.delete" => {
+            ctx.automation
+                .delete(&arg::<String>(&payload, "id")?)
+                .await?;
+            ok(json!({"deleted": true}))
+        }
+        "automations.set_enabled" => {
+            let id: String = arg(&payload, "id")?;
+            let enabled: bool = arg(&payload, "enabled")?;
+            ok(ctx.automation.set_enabled(&id, enabled).await?)
+        }
+        "automations.run" => {
+            let id: String = arg(&payload, "id")?;
+            let test_run = opt_arg(&payload, "test")?.unwrap_or(false);
+            ok(ctx.automation.run_now(&id, test_run).await?)
+        }
+        "automations.executions" => ok(ctx
+            .automation
+            .executions(arg_or_default(&payload, "filter")?)
+            .await?),
+        "automations.execution_detail" => ok(ctx
+            .automation
+            .execution_detail(&arg::<String>(&payload, "id")?)
+            .await?),
+        "automations.cancel" => {
+            ctx.automation
+                .cancel_execution(&arg::<String>(&payload, "id")?)
+                .await?;
+            ok(json!({"cancelled": true}))
+        }
+        "automations.approvals" => {
+            let status: Option<nexus_core::AutomationApprovalStatus> = opt_arg(&payload, "status")?;
+            ok(ctx.automation.approvals(status).await?)
+        }
+        "automations.approve" => ok(ctx
+            .automation
+            .decide_approval(&arg::<String>(&payload, "approval_id")?, true)
+            .await?),
+        "automations.reject" => ok(ctx
+            .automation
+            .decide_approval(&arg::<String>(&payload, "approval_id")?, false)
+            .await?),
+        "automations.overview" => ok(ctx.automation.overview().await?),
+        "automations.templates" => ok(nexus_automation::templates::all()),
+        "automations.install_template" => {
+            let template_id: String = arg(&payload, "template_id")?;
+            let template = nexus_automation::templates::all()
+                .into_iter()
+                .find(|t| t.id == template_id)
+                .ok_or_else(|| NexusError::not_found("plantilla", &template_id))?;
+            ok(ctx.automation.create(template.automation).await?)
+        }
+        "automations.triggers" => ok(nexus_automation::triggers::catalog()),
+        "automations.actions" => ok(nexus_automation::actions::catalog()),
+        "automations.metrics" => ok(nexus_automation::conditions::METRICS
+            .iter()
+            .map(|(id, desc)| json!({"id": id, "description": desc}))
+            .collect::<Vec<_>>()),
+        "automations.validate" => {
+            let flow: nexus_core::AutomationFlow = arg(&payload, "flow")?;
+            let agents: Vec<String> = ctx.agents.list().into_iter().map(|a| a.id).collect();
+            nexus_automation::flow::validate(&flow, &agents)?;
+            ok(json!({"valid": true}))
+        }
+        "automations.preview_condition" => {
+            let condition: nexus_core::Condition = arg(&payload, "condition")?;
+            let automation_id = opt_arg::<String>(&payload, "automation_id")?.unwrap_or_default();
+            let event_data = opt_arg(&payload, "event_data")?.unwrap_or(json!({}));
+            let passed = nexus_automation::runner::evaluate_preview(
+                s,
+                &automation_id,
+                &condition,
+                event_data,
+            )
+            .await?;
+            ok(json!({"passed": passed}))
+        }
+        "automations.mode_info" => {
+            let mode: nexus_core::AutomationMode = arg(&payload, "mode")?;
+            ok(ctx.automation.mode_availability(mode).await)
         }
 
         // ------------------------------------------------------------- activity
