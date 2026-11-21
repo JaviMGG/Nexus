@@ -39,11 +39,10 @@ fn show_main_window(app: &tauri::AppHandle) {
 }
 
 fn main() {
-    // WebKitGTK en GPUs Intel: el compositor DMA-BUF produce parpadeos y
-    // repintados lentos en algunas combinaciones de driver/Mesa. Se puede
-    // reactivar definiendo NEXUS_WEBKIT_DMABUF=1.
+    // Escape hatch para drivers con parpadeos en la ruta DMA-BUF de WebKitGTK:
+    // solo se desactiva si el usuario lo pide (por defecto, render acelerado).
     #[cfg(target_os = "linux")]
-    if std::env::var_os("NEXUS_WEBKIT_DMABUF").is_none() {
+    if std::env::var_os("NEXUS_DISABLE_DMABUF").is_some() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
 
