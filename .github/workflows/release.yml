@@ -25,24 +25,20 @@ jobs:
         include:
           - os: windows-latest
             name: windows-x64
-            bundles: nsis
-            rust_target: ""
             tauri_args: "--bundles nsis"
-          - os: macos-13
-            name: macos-x64
-            bundles: dmg
             rust_target: ""
-            tauri_args: "--bundles dmg"
           - os: macos-latest
             name: macos-arm64
-            bundles: dmg
-            rust_target: ""
             tauri_args: "--bundles dmg"
+            rust_target: ""
+          - os: macos-latest
+            name: macos-x64
+            tauri_args: "--target x86_64-apple-darwin --bundles dmg"
+            rust_target: x86_64-apple-darwin
           - os: ubuntu-22.04
             name: linux-x64
-            bundles: deb,rpm,appimage
-            rust_target: ""
             tauri_args: "--bundles deb,rpm,appimage"
+            rust_target: ""
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -54,6 +50,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -80,16 +78,21 @@ jobs:
         env:
           NO_STRIP: "true"
 
+      - name: Reunir bundles en dist/
+        shell: bash
+        run: |
+          mkdir -p dist
+          find target -path "*/bundle/*" -type f \
+            \( -name "*.exe" -o -name "*.dmg" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) \
+            -exec cp {} dist/ \;
+          ls -la dist/
+          test -n "$(ls dist/)"
+
       - name: Subir bundles como artifact
         uses: actions/upload-artifact@v4
         with:
           name: nexus-${{ matrix.name }}
-          path: |
-            target/release/bundle/nsis/*.exe
-            target/release/bundle/dmg/*.dmg
-            target/release/bundle/deb/*.deb
-            target/release/bundle/rpm/*.rpm
-            target/release/bundle/appimage/*.AppImage
+          path: dist/*
           if-no-files-found: error
 
   publish:
