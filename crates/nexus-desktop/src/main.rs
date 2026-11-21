@@ -8,6 +8,7 @@ use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, WindowEvent};
+use tauri_plugin_notification::NotificationExt;
 
 #[derive(Clone, Serialize)]
 struct ServerInfo {
@@ -46,6 +47,11 @@ fn main() {
         .init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // Segunda instancia: no arrancar otro motor; mostrar la ventana existente.
+            show_main_window(app);
+        }))
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
             let port: u16 = std::env::var("NEXUS_PORT")
@@ -72,7 +78,9 @@ fn main() {
             };
             app.manage(background);
 
-            // Refresca el flag cuando el usuario cambia el ajuste desde la UI.
+            // Refresca el flag cuando el usuario cambia el ajuste desde la UI y
+            // reenvía las notificaciones al sistema cuando la ventana no se ve
+            // (si está visible, el toast del frontend ya las muestra).
             let handle = app.handle().clone();
             let mut events = ctx.events.subscribe();
             tauri::async_runtime::spawn(async move {
@@ -87,6 +95,23 @@ fn main() {
                                     app_settings.automations.run_in_background,
                                     Ordering::Relaxed,
                                 );
+                            }
+                        }
+                        Ok(nexus_core::AppEvent::Notification { title, body, .. }) => {
+                            let window_visible = handle
+                                .get_webview_window("main")
+                                .and_then(|w| w.is_visible().ok())
+                                .unwrap_or(false);
+                            if !window_visible {
+                                let mut builder = handle.notification().builder().title(&title);
+                                if !body.trim().is_empty() {
+                                    builder = builder.body(&body);
+                                }
+                                if let Err(e) = builder.show() {
+                                    tracing::warn!(
+                                        "no se pudo mostrar la notificación del sistema: {e}"
+                                    );
+                                }
                             }
                         }
                         Ok(_) => {}

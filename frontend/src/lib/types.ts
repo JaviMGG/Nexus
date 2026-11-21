@@ -706,6 +706,11 @@ export const PALETTES: PaletteDef[] = [
     description: "Belle Époque oscura: pergamino, oro cálido y rosa apagado",
     preview: ["#111820", "#1C2732", "#C6A36A", "#D9B761"],
   },
+  {
+    id: "vicecity", name: "Vice City", swatch: "#ff4fa8", group: "otros",
+    description: "GTA VI: rosa neón de los 80, cian y atardecer de Vice City",
+    preview: ["#251229", "#331a38", "#ff4fa8", "#29d8ff"],
+  },
 ];
 
 export type PaletteId = string;

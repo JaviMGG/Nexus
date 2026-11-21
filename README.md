@@ -37,7 +37,7 @@ funciones manuales siguen disponibles y la app lo indica claramente (modo degrad
   (Local / IA / Híbrido). Las automatizaciones locales funcionan **sin IA y offline**.
 - **Actividad**: ejecuciones con trazabilidad de herramientas, aprobaciones pendientes,
   auditoría completa con **deshacer** operaciones.
-- **Ajustes**: perfil, **16 paletas de colores intercambiables** + dark/light, proveedores de IA
+- **Ajustes**: perfil, **17 paletas de colores intercambiables** + dark/light, proveedores de IA
   (API key, base URL, modelo, prueba de conexión), permisos de agentes, límites de uso,
   exportación JSON y copias de seguridad con restauración.
 - **Acerca de**: documentación integrada para cualquier usuario — qué es NEXUS, qué hace cada
@@ -187,15 +187,15 @@ rápida usa análisis heurístico local. Ningún error por falta de API key.
 
 ## Paletas de colores
 
-**16 paletas** × modos **dark/light**:
+**17 paletas** × modos **dark/light**:
 
 - **Básicas**: Violet, Graphite, Ocean, Forest, Sunset, Rose.
 - **Avanzados** (temas completos con superficies, bordes y acentos propios, inspirados en esquemas
   clásicos): **Nord** (azul ártico), **Dracula** (púrpura nocturno), **Tokyo Night** (neón azul),
   **Catppuccin** (pasteles Mocha/Latte), **Gruvbox** (retro cálido), **Everforest** (bosque
   brumoso), **Kanagawa** (ola japonesa) y **Cyberpunk** (magenta/cian eléctrico).
-- **Otros**: **Odysseus** (carbón tecnológico y cian coral) y **Expedition 33** (oro cálido y rosa
-  Belle Époque).
+- **Otros**: **Odysseus** (carbón tecnológico y cian coral), **Expedition 33** (oro cálido y rosa
+  Belle Époque) y **Vice City** (rosa neón GTA VI, cian y atardecer ochentero).
 
 Cámbialas desde el selector del sidebar o desde **Ajustes → Apariencia**, donde cada paleta
 incluye una mini-previsualización real de la interfaz. La elección se persiste en el backend y
