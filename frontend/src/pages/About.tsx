@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 
-const APP_VERSION = "0.1.1";
+const APP_VERSION = "0.1.2";
 
 // ---------------------------------------------------------------------------
 // Piezas reutilizables
@@ -159,11 +159,11 @@ function Diagnostics() {
           <Row
             ok={settings.data?.app.automations.enabled !== false}
             warn={settings.data?.app.automations.enabled === false}
-            label="Motor de automatizaciones"
+            label="Automatizaciones"
             detail={
               settings.data?.app.automations.enabled === false
-                ? "Desactivado en los ajustes: ninguna automatización se ejecutará hasta que lo reactives."
-                : `Activo. Límite diario: ${(settings.data?.app.automations.daily_token_limit ?? 0).toLocaleString("es-ES")} tokens. Las automatizaciones se ejecutan mientras NEXUS esté abierto.`
+                ? "Pausadas: ninguna automatización se ejecutará hasta que se reactiven."
+                : `En marcha. Límite diario de IA: ${(settings.data?.app.automations.daily_token_limit ?? 0).toLocaleString("es-ES")} tokens. ${settings.data?.app.automations.run_in_background ? "Aunque cierres la ventana, NEXUS sigue trabajando desde el iconito junto al reloj." : "Solo trabajan con la ventana abierta. Si quieres que sigan al cerrar, activa «Que NEXUS siga trabajando aunque cierres la ventana» en Ajustes → Automatizaciones."}`
             }
           />
         </ul>
@@ -271,7 +271,8 @@ export function AboutPage() {
           </Faq>
           <Faq q="Una automatización no se ejecuta">
             Comprueba en este orden: 1) que esté <b>activada</b> (interruptor en Mis automatizaciones); 2) que NEXUS
-            esté <b>abierto</b> — en esta versión el motor solo corre con la app abierta; 3) su <b>modo</b>: si es IA o
+            esté <b>en marcha</b> — con la ventana abierta, o en la bandeja del sistema si activaste
+            «Que NEXUS siga trabajando aunque cierres la ventana» (Ajustes → Automatizaciones); 3) su <b>modo</b>: si es IA o
             Híbrido y no hay proveedor, los pasos inteligentes se omiten o quedan pendientes (el modo Local nunca
             necesita IA); 4) el <b>disparador</b>: los eventos ocurren al crear/completar cosas, y los horarios usan la
             zona horaria configurada; 5) el <b>historial</b>: cada intento queda registrado con su error exacto.
@@ -311,11 +312,14 @@ export function AboutPage() {
             compatible (incluidos modelos locales tipo Ollama/LM Studio con pasarela compatible). Solo cambia la
             base URL, el modelo y la clave en Ajustes.
           </Faq>
-          <Faq q="¿Las automatizaciones funcionan con la app cerrada?">
-            En esta versión, no: el motor se ejecuta dentro de NEXUS (escritorio o servicio web). Si dejas el
-            servicio web corriendo en segundo plano, las automatizaciones siguen funcionando aunque no tengas la
-            ventana abierta. Los disparos perdidos mientras todo estuvo cerrado se descartan de forma segura y se
-            reprograman (nunca se ejecutan en tromba al abrir).
+          <Faq q="¿Las automatizaciones funcionan con la ventana cerrada?">
+            Sí, si activas <b>Ajustes → Automatizaciones → «Que NEXUS siga trabajando aunque cierres la ventana»</b>: al cerrar la
+            ventana, NEXUS queda en la bandeja del sistema (junto al reloj) y el motor sigue ejecutando
+            automatizaciones. Clic en el icono de la bandeja para reabrir; clic derecho → Salir para cerrar de
+            verdad. En Linux la bandeja necesita el paquete <code className="rounded bg-muted px-1 text-[11px]">libayatana-appindicator3</code>.
+            En modo web, el servicio <code className="rounded bg-muted px-1 text-[11px]">nexus-server</code> ya corre
+            en segundo plano por naturaleza. Si NEXUS estuvo completamente cerrado, los disparos perdidos se
+            descartan de forma segura y se reprograman (nunca se ejecutan en tromba al abrir).
           </Faq>
           <Faq q="¿Qué es el modo Híbrido de una automatización?">
             Ejecuta primero todo lo que se puede hacer con reglas locales (sin gastar tokens) y usa la IA solo en los
@@ -354,9 +358,10 @@ export function AboutPage() {
           de terminal ni código arbitrario.
         </p>
         <p>
-          Límites conocidos de esta versión: las automatizaciones corren con NEXUS abierto; la búsqueda web del
-          agente investigador requiere un proveedor de búsqueda configurado (si no, lo dice explícitamente y no
-          inventa fuentes); no hay sesiones de concentración todavía; la app es monousuario y local.
+          Límites conocidos de esta versión: el segundo plano usa la bandeja del sistema (no un servicio del
+          sistema operativo que arranque solo con el equipo); la búsqueda web del agente investigador requiere un
+          proveedor de búsqueda configurado (si no, lo dice explícitamente y no inventa fuentes); no hay sesiones
+          de concentración todavía; la app es monousuario y local.
         </p>
         <p className="flex items-center gap-1.5 text-xs">
           <Info className="h-3.5 w-3.5" />

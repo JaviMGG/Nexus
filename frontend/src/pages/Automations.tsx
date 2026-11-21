@@ -645,7 +645,7 @@ export function AutomationsPage() {
       <div className="mb-4">
         <h1 className="text-lg font-semibold tracking-tight">Automatizaciones</h1>
         <p className="text-xs text-muted-foreground">
-          Motor local de reglas y agentes: configura una vez y olvídate de las tareas repetitivas. Funciona mientras NEXUS esté abierto.
+          Motor local de reglas y agentes: configura una vez y olvídate de las tareas repetitivas. Funciona con NEXUS abierto o en segundo plano (Ajustes → Automatizaciones).
         </p>
       </div>
       <Tabs defaultValue="overview">

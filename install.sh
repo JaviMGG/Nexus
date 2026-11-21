@@ -57,11 +57,11 @@ install_native_deps() {
     warn "Faltan dependencias de escritorio (webkit2gtk-4.1, gtk3, libsoup3, librsvg)."
     local cmd=""
     if command -v pacman >/dev/null; then
-        cmd="sudo pacman -S --needed webkit2gtk-4.1 gtk3 libsoup3 librsvg"
+        cmd="sudo pacman -S --needed webkit2gtk-4.1 gtk3 libsoup3 librsvg libayatana-appindicator"
     elif command -v apt-get >/dev/null; then
-        cmd="sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev librsvg2-dev build-essential curl wget file libssl-dev"
+        cmd="sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-1 build-essential curl wget file libssl-dev"
     elif command -v dnf >/dev/null; then
-        cmd="sudo dnf install -y webkit2gtk4.1-devel gtk3-devel libsoup3-devel librsvg2-devel"
+        cmd="sudo dnf install -y webkit2gtk4.1-devel gtk3-devel libsoup3-devel librsvg2-devel libayatana-appindicator-gtk3"
     fi
     if [[ -n "$cmd" ]] && ask "¿Instalarlas ahora? ($cmd)"; then
         eval "$cmd"

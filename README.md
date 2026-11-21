@@ -260,9 +260,13 @@ Sección **Automatizaciones** del sidebar, con cinco apartados:
 - **Consumo**: presupuesto de tokens por ejecución y límite diario global configurable
   (Ajustes), registro real del consumo que reporta el proveedor.
 
-Las automatizaciones se ejecutan **mientras NEXUS esté abierto** (escritorio o servicio web).
-La arquitectura (scheduler + cola persistentes en SQLite) permite añadir más adelante un
-proceso residente en segundo plano sin rediseño.
+Las automatizaciones se ejecutan mientras NEXUS esté en marcha. Con la opción
+**Ajustes → Automatizaciones → «Que NEXUS siga trabajando aunque cierres la ventana»**, al cerrar la ventana la
+app queda en la **bandeja del sistema** y el motor sigue corriendo (clic en el icono para
+reabrir; clic derecho → Salir para cerrar de verdad). En Linux la bandeja requiere
+`libayatana-appindicator3`; si falta, la app lo avisa y cerrar la ventana sale normalmente.
+En modo web, `nexus-server` corre en segundo plano por naturaleza (servicio systemd opcional
+con `install.sh`).
 
 ## Tests y verificación
 
@@ -342,8 +346,9 @@ Las migraciones de base de datos se aplican automáticamente al arrancar; tus da
   respuesta completa.
 - **Kanban**: drag & drop nativo HTML5 (sin librería); en táctil funciona mediante los menús de
   estado de cada tarea.
-- **Automatizaciones en segundo plano**: en esta versión el motor corre mientras NEXUS está
-  abierto; no hay proceso residente con la ventana cerrada (la arquitectura lo permite añadir).
+- **Segundo plano**: se implementa con la bandeja del sistema (cerrar la ventana oculta la
+  app y el motor sigue); no es un servicio del sistema operativo que arranque solo con el
+  equipo — para eso, usa el modo web con systemd o añade NEXUS a las apps de inicio de tu SO.
   Los disparos de tipo "sesión de concentración" no existen aún porque NEXUS todavía no tiene
   sesiones de concentración; el registro de triggers es extensible.
 - **Constructor de automatizaciones**: el lienzo de nodos usa React Flow (@xyflow/react);

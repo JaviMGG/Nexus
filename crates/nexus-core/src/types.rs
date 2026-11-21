@@ -460,6 +460,7 @@ impl Default for UsageLimits {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AutomationSettings {
     /// Interruptor global del motor (las automatizaciones locales siguen
     /// funcionando aunque la IA no esté disponible).
@@ -468,6 +469,9 @@ pub struct AutomationSettings {
     pub daily_token_limit: i64,
     /// Zona horaria IANA por defecto; None = hora local del sistema.
     pub timezone: Option<String>,
+    /// Al cerrar la ventana, NEXUS sigue en segundo plano (bandeja del
+    /// sistema) y las automatizaciones continúan ejecutándose.
+    pub run_in_background: bool,
 }
 
 impl Default for AutomationSettings {
@@ -476,6 +480,7 @@ impl Default for AutomationSettings {
             enabled: true,
             daily_token_limit: 100_000,
             timezone: None,
+            run_in_background: false,
         }
     }
 }

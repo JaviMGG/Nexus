@@ -56,7 +56,11 @@ extraerse a un servicio independiente sin reescribir el dominio.
   reutiliza el motor multiagente existente (no duplica el bucle agéntico).
 - `nexus-app` ensambla todo y expone `dispatch(command, payload) -> Result<Value>`: un único
   punto de entrada usado por HTTP y por Tauri. Añadir un caso de uso = añadir un comando.
-- `nexus-api` / `nexus-desktop` son capas de transporte intercambiables.
+- `nexus-api` / `nexus-desktop` son capas de transporte intercambiables. `nexus-desktop`
+  añade bandeja del sistema (feature `tray-icon`): con `settings.app.automations.run_in_background`,
+  cerrar la ventana oculta la app en la bandeja y el scheduler sigue corriendo; el flag se
+  refresca en vivo escuchando `DataChanged{settings}` del bus. En Linux la bandeja carga
+  `libayatana-appindicator3` en runtime; si falta, se degrada sin bandeja (cierre normal).
 
 ## Flujo de una petición
 

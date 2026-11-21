@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Database, Gauge, Loader2, Palette, Save, ShieldCheck, Sparkles, User } from "lucide-react";
+import { Database, Gauge, Loader2, Palette, Save, ShieldCheck, Sparkles, User, Workflow } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { invoke, ApiError } from "@/lib/api";
 import type { AgentPermissions, AppSettings, Policy, SettingsPayload, UsageLimits } from "@/lib/types";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ThemeToggle, PaletteGrid } from "@/components/settings/PaletteGrid";
@@ -201,6 +202,74 @@ function LimitsSection({ app }: { app: AppSettings }) {
   );
 }
 
+function AutomationsSection({ app }: { app: AppSettings }) {
+  const qc = useQueryClient();
+  const [tokenDraft, setTokenDraft] = useState(String(app.automations.daily_token_limit));
+
+  useEffect(() => {
+    setTokenDraft(String(app.automations.daily_token_limit));
+  }, [app.automations.daily_token_limit]);
+
+  const update = useMutation({
+    mutationFn: (patch: Record<string, unknown>) =>
+      invoke<AppSettings>("settings.update", { patch: { automations: patch } }),
+    onSuccess: () => {
+      toast.success("Ajustes de automatizaciones guardados");
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["automation-overview"] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "No se pudo actualizar"),
+  });
+
+  const tokenValue = parseInt(tokenDraft, 10);
+  const tokenValid = Number.isFinite(tokenValue) && tokenValue >= 0;
+  const tokenDirty = tokenValid && tokenValue !== app.automations.daily_token_limit;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-2.5">
+        <div>
+          <p className="text-sm font-medium">Que NEXUS siga trabajando aunque cierres la ventana</p>
+          <p className="text-[11px] text-muted-foreground">
+            Al cerrar, NEXUS no se apaga: se queda como un iconito junto al reloj y tus
+            automatizaciones siguen funcionando. Pulsa ese icono para volver a abrir la ventana;
+            para apagarlo del todo, clic derecho sobre él → Salir.
+          </p>
+        </div>
+        <Switch
+          checked={app.automations.run_in_background}
+          onCheckedChange={(v) => update.mutate({ run_in_background: v })}
+          disabled={update.isPending}
+        />
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1.5">
+          <Label>Límite diario de tokens (todas las automatizaciones)</Label>
+          <Input
+            type="number"
+            min={0}
+            className="w-44"
+            value={tokenDraft}
+            onChange={(e) => setTokenDraft(e.target.value)}
+          />
+        </div>
+        <Button
+          size="sm"
+          onClick={() => update.mutate({ daily_token_limit: tokenValue })}
+          disabled={!tokenValid || !tokenDirty || update.isPending}
+        >
+          {update.isPending ? <Loader2 className="animate-spin" /> : <Save />}
+          Guardar límite
+        </Button>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        0 = sin límite. El modo Local no consume tokens; este tope protege el consumo de IA.
+      </p>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const settings = useQuery({
     queryKey: ["settings"],
@@ -284,6 +353,16 @@ export function SettingsPage() {
 
       <Section icon={Gauge} title="Límites de uso" description="Topes de seguridad para las ejecuciones de agentes.">
         <LimitsSection app={app} />
+      </Section>
+
+      <Separator />
+
+      <Section
+        icon={Workflow}
+        title="Automatizaciones"
+        description="Tus automatizaciones se activan y desactivan una a una en la sección Automatizaciones. Aquí controlas cómo trabajan."
+      >
+        <AutomationsSection app={app} />
       </Section>
 
       <Separator />

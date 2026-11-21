@@ -302,6 +302,8 @@ export interface AutomationSettings {
   enabled: boolean;
   daily_token_limit: number;
   timezone: string | null;
+  /** Al cerrar la ventana, NEXUS sigue en la bandeja del sistema y las automatizaciones continúan. */
+  run_in_background: boolean;
 }
 
 export interface AppSettings {
