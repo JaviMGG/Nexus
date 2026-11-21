@@ -14,6 +14,8 @@ const ENTITY_KEYS: Record<string, string[]> = {
   inbox: ["inbox", "dashboard"],
   run: ["runs", "dashboard", "activity"],
   settings: ["settings"],
+  automation: ["automations", "automation-overview", "automation-executions", "automation-approvals"],
+  activity: ["activity"],
 };
 
 export function useAppEvents() {
@@ -77,6 +79,32 @@ export function useAppEvents() {
           break;
         case "message_delta":
           // El chat se suscribe directamente a los deltas.
+          break;
+        case "automation_execution_updated":
+          qc.invalidateQueries({ queryKey: ["automation-executions"] });
+          qc.invalidateQueries({ queryKey: ["automation-execution", event.execution.id] });
+          qc.invalidateQueries({ queryKey: ["automation-overview"] });
+          qc.invalidateQueries({ queryKey: ["automations"] });
+          break;
+        case "automation_approval_requested": {
+          const a = event.approval;
+          toast.warning("Automatización: acción pendiente de autorización", {
+            description: a.preview,
+            duration: 15000,
+            action: {
+              label: "Revisar",
+              onClick: () => {
+                window.location.hash = "#/automations";
+              },
+            },
+          });
+          qc.invalidateQueries({ queryKey: ["automation-approvals"] });
+          break;
+        }
+        case "notification":
+          toast.info(event.title, { description: event.body || undefined, duration: 10000 });
+          break;
+        case "domain_event":
           break;
       }
     });

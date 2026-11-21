@@ -16,6 +16,8 @@ import { KnowledgePage } from "@/pages/Knowledge";
 import { ChatPage } from "@/pages/Chat";
 import { AgentsPage } from "@/pages/Agents";
 import { ActivityPage } from "@/pages/Activity";
+import { AutomationsPage } from "@/pages/Automations";
+import { AboutPage } from "@/pages/About";
 import { SettingsPage } from "@/pages/Settings";
 
 export default function App() {
@@ -44,7 +46,9 @@ export default function App() {
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/activity" element={<ActivityPage />} />
+            <Route path="/automations" element={<AutomationsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/about" element={<AboutPage />} />
           </Route>
         </Routes>
       </HashRouter>

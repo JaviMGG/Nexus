@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type { Trigger } from "./types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -95,3 +96,76 @@ export const AGENT_LABEL: Record<string, string> = {
   researcher: "Researcher",
   executor: "Executor",
 };
+
+export const AUTOMATION_MODE_LABEL: Record<string, string> = {
+  local: "Local",
+  ai: "IA",
+  hybrid: "Híbrido",
+};
+
+export const AUTOMATION_MODE_DESCRIPTION: Record<string, string> = {
+  local: "Solo reglas deterministas en Rust. Funciona offline, sin API key y sin consumir tokens.",
+  ai: "Usa los agentes y el proveedor de IA configurado. Requiere conexión.",
+  hybrid: "Ejecuta primero las reglas locales y usa IA solo cuando es necesaria. Sin proveedor, continúa lo local y deja lo inteligente pendiente.",
+};
+
+export const EXECUTION_STATUS_LABEL: Record<string, string> = {
+  pending: "Pendiente",
+  running: "Ejecutando",
+  waiting_approval: "Esperando autorización",
+  completed: "Completada",
+  failed: "Fallida",
+  cancelled: "Cancelada",
+};
+
+export const STEP_STATUS_LABEL: Record<string, string> = {
+  ok: "OK",
+  error: "Error",
+  skipped: "Omitido",
+  deferred: "Pendiente de IA",
+  waiting_approval: "Esperando autorización",
+  cancelled: "Cancelado",
+};
+
+export const WEEKDAY_LABEL: Record<string, string> = {
+  mon: "L",
+  tue: "M",
+  wed: "X",
+  thu: "J",
+  fri: "V",
+  sat: "S",
+  sun: "D",
+};
+
+export const WEEKDAY_FULL: Record<string, string> = {
+  mon: "Lunes",
+  tue: "Martes",
+  wed: "Miércoles",
+  thu: "Jueves",
+  fri: "Viernes",
+  sat: "Sábado",
+  sun: "Domingo",
+};
+
+export function triggerLabel(trigger: Trigger): string {
+  if (trigger.type === "event") {
+    return `Evento: ${trigger.event}`;
+  }
+  const spec = trigger.spec;
+  switch (spec.kind) {
+    case "daily":
+      return `Diario a las ${spec.time ?? "08:00"}`;
+    case "weekly": {
+      const days = (spec.weekdays ?? []).map((d) => WEEKDAY_FULL[d] ?? d).join(", ");
+      return `Semanal (${days}) a las ${spec.time ?? "08:00"}`;
+    }
+    case "monthly":
+      return `Mensual (día ${spec.day_of_month ?? 1}) a las ${spec.time ?? "08:00"}`;
+    case "interval":
+      return `Cada ${spec.interval_minutes ?? 60} min`;
+    case "once":
+      return `Una vez: ${spec.date ?? ""} ${spec.time ?? ""}`.trim();
+    default:
+      return "Programación";
+  }
+}

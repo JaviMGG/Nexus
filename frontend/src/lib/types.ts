@@ -298,6 +298,12 @@ export interface UsageLimits {
   requests_per_minute: number;
 }
 
+export interface AutomationSettings {
+  enabled: boolean;
+  daily_token_limit: number;
+  timezone: string | null;
+}
+
 export interface AppSettings {
   user_name: string;
   theme: string;
@@ -305,6 +311,7 @@ export interface AppSettings {
   permissions: AgentPermissions;
   limits: UsageLimits;
   default_provider: Id | null;
+  automations: AutomationSettings;
 }
 
 export interface AgentDef {
@@ -387,6 +394,232 @@ export interface SettingsPayload {
   ai_status: AiStatus;
 }
 
+// ---------------------------------------------------------------------------
+// Automation Center
+// ---------------------------------------------------------------------------
+
+export type AutomationMode = "local" | "ai" | "hybrid";
+export type ExecutionStatus = "pending" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled";
+export type StepStatus = "ok" | "error" | "skipped" | "deferred" | "waiting_approval" | "cancelled";
+export type TriggerKind = "schedule" | "event";
+export type ExecutionPolicy = "always" | "skip_if_active" | "cooldown";
+export type AutomationApprovalStatus = "pending" | "approved" | "rejected" | "expired";
+export type CompareOp = "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "contains";
+
+export interface ScheduleSpec {
+  kind: "daily" | "weekly" | "monthly" | "interval" | "once";
+  time: string | null;
+  weekdays: string[];
+  day_of_month: number | null;
+  interval_minutes: number | null;
+  date: string | null;
+  timezone: string | null;
+}
+
+export type Trigger =
+  | { type: "schedule"; spec: ScheduleSpec }
+  | { type: "event"; event: string; filter?: Record<string, unknown> };
+
+export type Condition =
+  | { type: "and"; conditions: Condition[] }
+  | { type: "or"; conditions: Condition[] }
+  | { type: "not"; condition: Condition }
+  | { type: "metric"; metric: string; op: CompareOp; value: unknown; params?: Record<string, unknown> }
+  | { type: "event_field"; field: string; op: CompareOp; value: unknown };
+
+export type StepKind =
+  | { type: "condition"; condition: Condition; on_true: Id | null; on_false: Id | null }
+  | { type: "action"; action: string; params: Record<string, unknown>; approval?: "auto" | "confirm" | null }
+  | { type: "agent"; agent_id: string; goal: string; approval?: "auto" | "confirm" | null }
+  | { type: "delay"; seconds: number }
+  | { type: "notification"; title: string; body: string }
+  | { type: "end" };
+
+export type FlowStep = { id: Id; next: Id | null } & StepKind;
+
+export interface AutomationFlow {
+  version: number;
+  steps: FlowStep[];
+  entry: Id | null;
+  /** Posiciones de los nodos en el lienzo visual (id de paso → [x, y]). */
+  positions?: Record<Id, [number, number]>;
+}
+
+export interface AutomationLimits {
+  max_tokens: number;
+  max_agent_calls: number;
+  max_steps: number;
+  timeout_secs: number;
+  retries: number;
+  cooldown_minutes: number;
+}
+
+export interface Automation {
+  id: Id;
+  name: string;
+  description: string;
+  icon: string;
+  enabled: boolean;
+  mode: AutomationMode;
+  trigger: Trigger;
+  conditions: Condition | null;
+  flow: AutomationFlow;
+  permissions: { write: "auto" | "confirm" };
+  limits: AutomationLimits;
+  policy: ExecutionPolicy;
+  template_id: string | null;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  run_count: number;
+  last_status: ExecutionStatus | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAutomation {
+  name: string;
+  description?: string;
+  icon?: string;
+  enabled?: boolean;
+  mode?: AutomationMode;
+  trigger: Trigger;
+  conditions?: Condition | null;
+  flow?: AutomationFlow;
+  permissions?: { write: "auto" | "confirm" };
+  limits?: Partial<AutomationLimits>;
+  policy?: ExecutionPolicy;
+  template_id?: string | null;
+}
+
+export type UpdateAutomation = Partial<Omit<CreateAutomation, "trigger">> & { trigger?: Trigger };
+
+export interface StepLog {
+  id: Id;
+  execution_id: Id;
+  step_id: Id | null;
+  kind: string;
+  name: string;
+  status: StepStatus;
+  detail: Record<string, unknown> | null;
+  error: string | null;
+  duration_ms: number;
+  created_at: string;
+}
+
+export interface AutomationExecution {
+  id: Id;
+  automation_id: Id;
+  automation_name: string;
+  trigger_kind: TriggerKind;
+  trigger_detail: string;
+  mode: AutomationMode;
+  status: ExecutionStatus;
+  test_run: boolean;
+  tokens_used: number;
+  agent_calls: number;
+  steps_done: number;
+  error: string | null;
+  result: Record<string, unknown> | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+}
+
+export interface AutomationApproval {
+  id: Id;
+  execution_id: Id;
+  automation_id: Id;
+  step_id: Id | null;
+  action: string;
+  params: Record<string, unknown>;
+  preview: string;
+  agent_id: string | null;
+  status: AutomationApprovalStatus;
+  created_at: string;
+  decided_at: string | null;
+}
+
+export interface ExecutionDetail {
+  execution: AutomationExecution;
+  steps: StepLog[];
+  approvals: AutomationApproval[];
+  agent_runs: AgentRun[];
+}
+
+export interface ExecutionFilter {
+  automation_id?: Id;
+  status?: ExecutionStatus;
+  test_run?: boolean;
+  limit?: number;
+}
+
+export interface AutomationTemplate {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  trigger_label: string;
+  agents: string[];
+  actions: string[];
+  requires_ai: boolean;
+  default_mode: AutomationMode;
+  estimated_tokens: number;
+  /** 1 = muy simple … 5 = avanzada */
+  difficulty: number;
+  automation: CreateAutomation;
+}
+
+export interface AgentUsage {
+  agent_id: string;
+  calls: number;
+}
+
+export interface AutomationOverview {
+  active_count: number;
+  total_count: number;
+  executions_total: number;
+  executions_ok: number;
+  executions_failed: number;
+  executions_today: number;
+  tokens_today: number;
+  tokens_total: number;
+  pending_approvals: number;
+  top_agents: AgentUsage[];
+  recent_executions: AutomationExecution[];
+  upcoming: Automation[];
+  ai_status: AiStatus;
+  daily_token_limit: number;
+}
+
+export interface ActionSpec {
+  id: string;
+  name: string;
+  description: string;
+  risk: "read" | "write" | "sensitive";
+  entity: string;
+}
+
+export interface TriggerSpec {
+  id: string;
+  name: string;
+  description: string;
+  kind: TriggerKind;
+}
+
+export interface MetricSpec {
+  id: string;
+  description: string;
+}
+
+export interface ModeInfo {
+  mode: AutomationMode;
+  requires_ai: boolean;
+  requires_internet: boolean;
+  ai_available: boolean;
+  will_run_offline: boolean;
+}
+
 export type AppEvent =
   | { type: "run_started"; run: AgentRun }
   | { type: "run_updated"; run: AgentRun }
@@ -398,13 +631,17 @@ export type AppEvent =
   | { type: "approval_requested"; approval: Approval }
   | { type: "approval_resolved"; approval: Approval }
   | { type: "ai_status_changed"; status: AiStatus }
-  | { type: "data_changed"; entity: string };
+  | { type: "data_changed"; entity: string }
+  | { type: "domain_event"; event: string; entity: string; entity_id: Id | null; data: Record<string, unknown> }
+  | { type: "automation_execution_updated"; execution: AutomationExecution }
+  | { type: "automation_approval_requested"; approval: AutomationApproval }
+  | { type: "notification"; title: string; body: string; automation_id: Id | null };
 
 export interface PaletteDef {
   id: string;
   name: string;
   swatch: string;
-  group: "basicas" | "curadas";
+  group: "basicas" | "avanzados" | "otros";
   description?: string;
   /** Colores reales del tema oscuro para la mini-previsualización [fondo, tarjeta, primario, acento] */
   preview: [string, string, string, string];
@@ -418,44 +655,54 @@ export const PALETTES: PaletteDef[] = [
   { id: "sunset", name: "Sunset", swatch: "#fb923c", group: "basicas", preview: ["#140d08", "#1c130c", "#fb923c", "#fdba74"] },
   { id: "rose", name: "Rose", swatch: "#fb7185", group: "basicas", preview: ["#140a10", "#1c0f16", "#fb7185", "#fda4af"] },
   {
-    id: "nord", name: "Nord", swatch: "#88c0d0", group: "curadas",
+    id: "nord", name: "Nord", swatch: "#88c0d0", group: "avanzados",
     description: "Azul ártico sereno, inspirado en el tema Nord",
     preview: ["#242933", "#2e3440", "#88c0d0", "#81a1c1"],
   },
   {
-    id: "dracula", name: "Dracula", swatch: "#bd93f9", group: "curadas",
+    id: "dracula", name: "Dracula", swatch: "#bd93f9", group: "avanzados",
     description: "Púrpura nocturno con acentos cian y rosa",
     preview: ["#191a21", "#21222c", "#bd93f9", "#ff79c6"],
   },
   {
-    id: "tokyo", name: "Tokyo Night", swatch: "#7aa2f7", group: "curadas",
+    id: "tokyo", name: "Tokyo Night", swatch: "#7aa2f7", group: "avanzados",
     description: "Noche de neón azul sobre índigo profundo",
     preview: ["#16161e", "#1a1b26", "#7aa2f7", "#bb9af7"],
   },
   {
-    id: "catppuccin", name: "Catppuccin", swatch: "#cba6f7", group: "curadas",
+    id: "catppuccin", name: "Catppuccin", swatch: "#cba6f7", group: "avanzados",
     description: "Pasteles suaves sobre base mauve (Mocha)",
     preview: ["#11111b", "#181825", "#cba6f7", "#f5c2e7"],
   },
   {
-    id: "gruvbox", name: "Gruvbox", swatch: "#d79921", group: "curadas",
+    id: "gruvbox", name: "Gruvbox", swatch: "#d79921", group: "avanzados",
     description: "Retro cálido: mostaza, tierra y verde oliva",
     preview: ["#1d2021", "#282828", "#d79921", "#b8bb26"],
   },
   {
-    id: "everforest", name: "Everforest", swatch: "#a7c080", group: "curadas",
+    id: "everforest", name: "Everforest", swatch: "#a7c080", group: "avanzados",
     description: "Bosque brumoso, verdes apagados y cálidos",
     preview: ["#272e33", "#2d353b", "#a7c080", "#dbbc7f"],
   },
   {
-    id: "kanagawa", name: "Kanagawa", swatch: "#7e9cd8", group: "curadas",
+    id: "kanagawa", name: "Kanagawa", swatch: "#7e9cd8", group: "avanzados",
     description: "Ola japonesa: índigo, oro viejo y sakura",
     preview: ["#16161d", "#1f1f28", "#7e9cd8", "#dcd7ba"],
   },
   {
-    id: "cyberpunk", name: "Cyberpunk", swatch: "#ff2a6d", group: "curadas",
+    id: "cyberpunk", name: "Cyberpunk", swatch: "#ff2a6d", group: "avanzados",
     description: "Neón magenta y cian eléctrico sobre negro",
     preview: ["#0a0a12", "#10101c", "#ff2a6d", "#05d9e8"],
+  },
+  {
+    id: "odysseus", name: "Odysseus", swatch: "#9cdef2", group: "otros",
+    description: "Carbón tecnológico, hielo cian y detalles coral",
+    preview: ["#282c34", "#111111", "#9cdef2", "#e06c75"],
+  },
+  {
+    id: "expedition33", name: "Expedition 33", swatch: "#D9B761", group: "otros",
+    description: "Belle Époque oscura: pergamino, oro cálido y rosa apagado",
+    preview: ["#111820", "#1C2732", "#C6A36A", "#D9B761"],
   },
 ];
 
