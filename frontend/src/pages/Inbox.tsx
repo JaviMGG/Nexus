@@ -111,7 +111,7 @@ export function InboxPage() {
   return (
     <div className="mx-auto max-w-[1200px] p-6 animate-fade-in">
       <header className="mb-6">
-        <h1 className="text-xl font-semibold tracking-tight">Inbox</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Bandeja de entrada</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Captura ideas al vuelo y procésalas cuando tengas contexto.
         </p>

@@ -4,16 +4,18 @@ import { useUiStore } from "@/stores/ui";
 import { Button } from "@/components/ui/button";
 
 const TITLES: Record<string, string> = {
-  "/": "Dashboard",
-  "/inbox": "Inbox",
+  "/": "Inicio",
+  "/inbox": "Bandeja de entrada",
   "/tasks": "Tareas",
   "/projects": "Proyectos",
   "/calendar": "Calendario",
-  "/knowledge": "Knowledge Base",
+  "/knowledge": "Conocimiento",
   "/chat": "Chat IA",
   "/agents": "Agentes",
   "/activity": "Actividad",
+  "/automations": "Automatizaciones",
   "/settings": "Ajustes",
+  "/about": "Acerca de",
 };
 
 export function Topbar() {
