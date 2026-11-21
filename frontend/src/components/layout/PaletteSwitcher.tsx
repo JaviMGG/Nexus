@@ -46,8 +46,16 @@ export function PaletteSwitcher({ compact = false }: { compact?: boolean }) {
             {palette === p.id && <Check className="h-3.5 w-3.5 text-primary" />}
           </DropdownMenuItem>
         ))}
-        <DropdownMenuLabel>Curadas</DropdownMenuLabel>
-        {PALETTES.filter((p) => p.group === "curadas").map((p) => (
+        <DropdownMenuLabel>Avanzados</DropdownMenuLabel>
+        {PALETTES.filter((p) => p.group === "avanzados").map((p) => (
+          <DropdownMenuItem key={p.id} onClick={() => setPalette(p.id)}>
+            <span className="h-3.5 w-3.5 rounded-full border border-black/20" style={{ background: p.swatch }} />
+            <span className="flex-1">{p.name}</span>
+            {palette === p.id && <Check className="h-3.5 w-3.5 text-primary" />}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuLabel>Otros</DropdownMenuLabel>
+        {PALETTES.filter((p) => p.group === "otros").map((p) => (
           <DropdownMenuItem key={p.id} onClick={() => setPalette(p.id)}>
             <span className="h-3.5 w-3.5 rounded-full border border-black/20" style={{ background: p.swatch }} />
             <span className="flex-1">{p.name}</span>

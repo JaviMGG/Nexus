@@ -81,7 +81,8 @@ export function PaletteGrid() {
   const palette = useThemeStore((s) => s.palette);
   const setPalette = useThemeStore((s) => s.setPalette);
   const basicas = PALETTES.filter((p) => p.group === "basicas");
-  const curadas = PALETTES.filter((p) => p.group === "curadas");
+  const avanzados = PALETTES.filter((p) => p.group === "avanzados");
+  const otros = PALETTES.filter((p) => p.group === "otros");
 
   return (
     <div className="space-y-5">
@@ -95,10 +96,18 @@ export function PaletteGrid() {
       </div>
       <div>
         <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Curadas · temas completos
+          Avanzados · temas completos
         </p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {curadas.map((p) => (
+          {avanzados.map((p) => (
+            <PaletteCard key={p.id} p={p} active={palette === p.id} onSelect={() => setPalette(p.id)} />
+          ))}
+        </div>
+      </div>
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Otros</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {otros.map((p) => (
             <PaletteCard key={p.id} p={p} active={palette === p.id} onSelect={() => setPalette(p.id)} />
           ))}
         </div>
