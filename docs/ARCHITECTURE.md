@@ -21,10 +21,14 @@ extraerse a un servicio independiente sin reescribir el dominio.
 │   bucle de herramientas      │  ProviderRegistry + rate limiting       │
 │   delegación · límites       │  streaming SSE · health · errores       │
 │   cancelación · aprobaciones ├─────────────────────────────────────────┤
-│                              │  nexus-tools                            │
-│                              │  Tool trait + ToolRegistry (19 tools)   │
-│                              │  riesgos Read/Write/Destructive         │
-│                              │  validación JSON Schema                 │
+├──────────────────────────────┤  nexus-tools                            │
+│  nexus-automation            │  Tool trait + ToolRegistry (19 tools)   │
+│  AutomationManager:          │  riesgos Read/Write/Destructive         │
+│   TriggerRegistry · scheduler│  validación JSON Schema                 │
+│   ConditionEngine · acciones │                                         │
+│   ExecutionEngine de flujos  │                                         │
+│   AgentDispatcher · history  │                                         │
+│   autorizaciones · plantillas│                                         │
 ├──────────────────────────────┴─────────────────────────────────────────┤
 │  nexus-services — servicios de aplicación                              │
 │  tasks · projects · notes · inbox · chat · activity(undo) · settings   │
@@ -48,6 +52,8 @@ extraerse a un servicio independiente sin reescribir el dominio.
   con esquema JSON, nivel de riesgo y validación de argumentos.
 - `nexus-agents` conoce `ai` + `tools` + `services`: es el único lugar donde existe el bucle
   agéntico.
+- `nexus-automation` conoce `agents` + `ai` + `services`: orquesta automatizaciones locales y
+  reutiliza el motor multiagente existente (no duplica el bucle agéntico).
 - `nexus-app` ensambla todo y expone `dispatch(command, payload) -> Result<Value>`: un único
   punto de entrada usado por HTTP y por Tauri. Añadir un caso de uso = añadir un comando.
 - `nexus-api` / `nexus-desktop` son capas de transporte intercambiables.
@@ -112,6 +118,50 @@ Controles implementados:
 `agents.start` devuelve error claro sin crear runs; la captura rápida cae a la heurística local.
 El estado (`connected/disconnected/error`) se emite por SSE y se muestra en el sidebar.
 
+## Automation Center (`nexus-automation`)
+
+Motor local de automatizaciones con responsabilidades separadas:
+
+| Módulo | Responsabilidad |
+|---|---|
+| `manager.rs` (AutomationManager) | CRUD validado, cola con semáforo (máx. 3 concurrentes), políticas de ejecución, recuperación tras reinicio, overview |
+| `triggers.rs` (TriggerRegistry) | Catálogo de eventos de dominio + cálculo de próxima ocurrencia con `chrono-tz` (DST incluido) |
+| `conditions.rs` (ConditionEngine) | Árbol AND/OR/NOT + métricas deterministas sobre repositorios reales; nunca SQL libre |
+| `actions.rs` (ActionRegistry) | Catálogo cerrado de acciones tipadas sobre los servicios; riesgo read/write/sensitive; interpolación `{{campo}}` |
+| `runner.rs` (ExecutionEngine de flujos) | Recorrido de pasos con presupuesto, timeouts, cancelación, IF/ELSE, reintentos e historial |
+| `dispatcher.rs` (AgentDispatcher) | Puente al `ExecutionEngine` multiagente: espera del run, tokens, límites, modo híbrido sin proveedor |
+| `templates.rs` | 16 plantillas funcionales (CreateAutomation completos) con dificultad 1-5 y ejemplos Local/IA/Híbrido |
+| `flow.rs` | Validación estructural: sin ciclos (DFS), referencias válidas, acciones/agentes conocidos |
+
+Persistencia (migración `0003_automations.sql`): `automations` (trigger/condiciones/flujo como
+JSON versionado, incluidas las posiciones de los nodos del lienzo), `automation_executions`,
+`automation_step_logs`, `automation_approvals`, `automation_fired_marks` (deduplicación por disparo).
+
+Frontend del Automation Center: `pages/Automations.tsx` (5 pestañas) + `components/automations/`
+(editor a página completa `AutomationEditor.tsx` —sin diálogo, con vista de edición in-place—,
+lienzo **React Flow** `FlowCanvas.tsx` orientado de izquierda a derecha, nodos custom por tipo
+de paso con salidas sí/no para IF/ELSE, aristas derivadas de `next`/`on_true`/`on_false`,
+auto-layout para flujos sin posiciones, panel lateral de configuración `StepEditor.tsx`,
+diálogo de ejecución con pasos/autorizaciones/runs de agente). El modelo de flujo es la única
+fuente de verdad: el lienzo solo lo renderiza y edita; la validación estructural vive en el
+backend (`flow.rs`).
+
+Eventos: el dispatch emite `AppEvent::DomainEvent {event, entity, entity_id, data}` tras las
+mutaciones de usuario; el manager los consume por broadcast (sin polling) y lanza las
+automatizaciones cuyo trigger coincide. `task.overdue` se genera con una comprobación
+determinista en el tick del scheduler (marca por tarea+día). El scheduler persiste
+`next_run_at`; al reabrir NEXUS recalcula desde ahora y descarta disparos perdidos (>10 min)
+en lugar de ejecutarlos en tromba. Las ejecuciones huérfanas se marcan `failed`.
+
+Modos: `local` (sin IA), `ai` (requiere proveedor; sin él la ejecución falla con error claro)
+e `hybrid` (los pasos de agente sin proveedor se registran como `deferred` y el flujo local
+continúa). Presupuesto: tokens por ejecución, llamadas a agentes, pasos máximos, timeout,
+reintentos, cooldown y límite diario global (`settings.app.automations.daily_token_limit`).
+
+Autorizaciones: las acciones sensibles y las marcadas `confirm` crean un registro en
+`automation_approvals`, ponen la ejecución en `waiting_approval` y esperan la decisión humana
+(watch channel, sin condiciones de carrera), con vista previa del cambio y caducidad a las 48 h.
+
 ## Proveedores de IA
 
 `AiProvider` (trait async) con `chat`, `chat_stream` y `health`. La implementación actual es
@@ -128,7 +178,9 @@ hacia el frontend ni se loguean.
 SQLite en modo WAL, `foreign_keys=ON`, migraciones SQLx versionadas (`crates/nexus-db/migrations`).
 Tablas: `projects`, `tasks` (jerárquicas, soft-delete), `events` (calendario), `notes` + `notes_fts`
 (FTS5 sincronizada transaccionalmente), `inbox_items`, `conversations`, `chat_messages`,
-`agent_runs`, `tool_calls`, `approvals`, `activity_events` (con `undo_json`), `settings`.
+`agent_runs`, `tool_calls`, `approvals`, `activity_events` (con `undo_json`), `settings`,
+`automations`, `automation_executions`, `automation_step_logs`, `automation_approvals`,
+`automation_fired_marks`.
 
 - **Undo**: las mutaciones guardan el estado previo o la operación inversa; `activity.undo` la
   aplica y consume el registro (no doble undo).
@@ -141,9 +193,10 @@ Tablas: `projects`, `tasks` (jerárquicas, soft-delete), `events` (calendario), 
 - **Estado servidor**: TanStack Query; las mutaciones invalidan keys y los eventos SSE
   (`useAppEvents`) mantienen todo sincronizado en vivo, incluido el streaming del chat.
 - **Estado cliente**: Zustand (`theme`, `ui`).
-- **Temas y paletas**: variables CSS (`--background`, `--primary`, `--accent`, …) con 14 paletas ×
-  dark/light definidas en `index.css` (6 básicas de acento + 8 curadas de tema completo: Nord,
-  Dracula, Tokyo Night, Catppuccin, Gruvbox, Everforest, Kanagawa, Cyberpunk); Tailwind 4 las
+- **Temas y paletas**: variables CSS (`--background`, `--primary`, `--accent`, …) con 16 paletas ×
+  dark/light definidas en `index.css` (6 básicas de acento + 8 avanzadas de tema completo: Nord,
+  Dracula, Tokyo Night, Catppuccin, Gruvbox, Everforest, Kanagawa, Cyberpunk + 2 otras: Odysseus,
+  Expedition 33); Tailwind 4 las
   mapea con `@theme inline`. El store aplica
   `data-palette` + clase `dark/light` al instante, persiste en localStorage (anti-flash en
   `index.html`) y sincroniza con el backend (`settings.update`).
@@ -167,5 +220,10 @@ Tablas: `projects`, `tasks` (jerárquicas, soft-delete), `events` (calendario), 
 - `nexus-tools` (9): validación de esquemas, matriz de permisos, ejecución real, web.search honesto.
 - `nexus-agents` (14): bucle feliz con MockProvider, límites de iteraciones/tokens, delegación y
   profundidad, aprobaciones, cancelación, allowlists, recuperación de runs huérfanos.
+- `nexus-automation` (43): triggers y zona horaria/DST, validación de flujos (ciclos, ramas),
+  condiciones AND/OR/NOT con datos reales, acciones locales, eventos de dominio, scheduler y
+  deduplicación, recuperación tras reinicio, autorizaciones (aprobar/rechazar), cancelación,
+  límites de pasos/llamadas, reintentos, modos local/IA/híbrido con MockProvider, encadenado,
+  plantillas instalables y overview.
 - `nexus-app` (3): parsing de captura IA con fallback.
 - `scripts/e2e.mjs` (28): API real end-to-end incluyendo SSE en vivo y modo sin IA.

@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión del release (ej. 0.1.1). Se publicará como v<versión>."
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows-x64
+            bundles: nsis
+            rust_target: ""
+            tauri_args: "--bundles nsis"
+          - os: macos-13
+            name: macos-x64
+            bundles: dmg
+            rust_target: ""
+            tauri_args: "--bundles dmg"
+          - os: macos-latest
+            name: macos-arm64
+            bundles: dmg
+            rust_target: ""
+            tauri_args: "--bundles dmg"
+          - os: ubuntu-22.04
+            name: linux-x64
+            bundles: deb,rpm,appimage
+            rust_target: ""
+            tauri_args: "--bundles deb,rpm,appimage"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: ${{ matrix.name }}
+
+      - name: Dependencias de sistema (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev librsvg2-dev patchelf rpm
+
+      - name: Instalar dependencias del frontend
+        working-directory: frontend
+        run: npm ci
+
+      - name: Instalar Tauri CLI (binario precompilado)
+        run: npm install -g @tauri-apps/cli@^2
+
+      - name: Compilar bundles
+        working-directory: crates/nexus-desktop
+        run: tauri build ${{ matrix.tauri_args }} --no-sign
+        env:
+          NO_STRIP: "true"
+
+      - name: Subir bundles como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-${{ matrix.name }}
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
+            target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar todos los bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Listar archivos
+        run: find artifacts -type f | sort
+
+      - name: Publicar release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref_name }}
+          name: NEXUS ${{ github.event.inputs.version || github.ref_name }}
+          files: artifacts/**/*
+          fail_on_unmatched_files: true
+          generate_release_notes: false
+          body: |
+            ## NEXUS ${{ github.event.inputs.version || github.ref_name }}
+
+            Centro de control personal: tareas, proyectos, calendario, conocimiento, agentes de IA
+            y **Automation Center** (automatizaciones locales con constructor visual de nodos).
+            100% local; la IA es opcional.
+
+            ### Descargas
+            | Plataforma | Archivo |
+            |---|---|
+            | Windows x64 | `NEXUS_*_x64-setup.exe` |
+            | macOS Intel | `NEXUS_*_x64.dmg` |
+            | macOS Apple Silicon | `NEXUS_*_aarch64.dmg` |
+            | Linux | `.deb` / `.rpm` / `.AppImage` |
+
+            ### Avisos de seguridad (instaladores sin firmar)
+            - **Windows**: SmartScreen → **Más información** → **Ejecutar de todos modos**.
+            - **macOS**: la primera vez, clic derecho sobre la app → **Abrir** (Gatekeeper).
+              Si macOS dice que está dañada: `xattr -cr /Applications/NEXUS.app`.
+            - **Linux AppImage**: `chmod +x NEXUS_*.AppImage` y ejecutar.
+
+            No incluye credenciales de IA; configura tu proveedor desde **Ajustes → Inteligencia Artificial**.
+            Las automatizaciones en modo **Local** funcionan sin IA y sin conexión.
