@@ -121,9 +121,11 @@ jobs:
           body: |
             ## NEXUS ${{ github.event.inputs.version || github.ref_name }}
 
-            Centro de control personal: tareas, proyectos, calendario, conocimiento, agentes de IA
-            y **Automation Center** (automatizaciones locales con constructor visual de nodos).
-            100% local; la IA es opcional.
+            Centro de control personal: tareas, proyectos, calendario, conocimiento, agentes de IA,
+            **Automation Center** (automatizaciones locales con constructor visual de nodos) y las
+            herramientas **Canvas** (pizarra infinita), **Bases de datos** (tipo Airtable, con vista
+            Esquema) y **Comidas** (recetas, menús, compra y despensa).
+            100% local; la IA es opcional y las herramientas funcionan sin ella.
 
             ### Descargas
             | Plataforma | Archivo |
