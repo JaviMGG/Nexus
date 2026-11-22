@@ -25,7 +25,7 @@ impl AppContext {
     pub async fn new(data_dir: PathBuf) -> Result<Self> {
         let _ = dotenvy::dotenv();
         let db = Db::connect(&data_dir.join("nexus.sqlite")).await?;
-        let services = Services::new(db);
+        let services = Services::with_data_dir(db, &data_dir);
         let providers = Arc::new(ProviderRegistry::new(services.clone()));
         if let Err(e) = providers.refresh().await {
             tracing::warn!("no se pudieron cargar los proveedores de IA: {e}");

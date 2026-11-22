@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use crate::context::AppContext;
 
-fn arg<T: DeserializeOwned>(payload: &Value, key: &str) -> Result<T> {
+pub(crate) fn arg<T: DeserializeOwned>(payload: &Value, key: &str) -> Result<T> {
     let v = payload
         .get(key)
         .ok_or_else(|| NexusError::validation(format!("falta el parámetro '{key}'")))?;
@@ -17,7 +17,7 @@ fn arg<T: DeserializeOwned>(payload: &Value, key: &str) -> Result<T> {
         .map_err(|e| NexusError::validation(format!("parámetro '{key}' inválido: {e}")))
 }
 
-fn opt_arg<T: DeserializeOwned>(payload: &Value, key: &str) -> Result<Option<T>> {
+pub(crate) fn opt_arg<T: DeserializeOwned>(payload: &Value, key: &str) -> Result<Option<T>> {
     match payload.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(v) => serde_json::from_value(v.clone())
@@ -26,11 +26,14 @@ fn opt_arg<T: DeserializeOwned>(payload: &Value, key: &str) -> Result<Option<T>>
     }
 }
 
-fn arg_or_default<T: DeserializeOwned + Default>(payload: &Value, key: &str) -> Result<T> {
+pub(crate) fn arg_or_default<T: DeserializeOwned + Default>(
+    payload: &Value,
+    key: &str,
+) -> Result<T> {
     Ok(opt_arg(payload, key)?.unwrap_or_default())
 }
 
-fn ok(v: impl serde::Serialize) -> Result<Value> {
+pub(crate) fn ok(v: impl serde::Serialize) -> Result<Value> {
     serde_json::to_value(v).map_err(|e| NexusError::Internal(e.to_string()))
 }
 
@@ -632,15 +635,65 @@ pub async fn dispatch(ctx: &AppContext, command: &str, payload: Value) -> Result
             }
             s.backup.restore(&canonical).await?;
             for entity in [
-                "task", "project", "note", "inbox", "event", "settings", "activity",
+                "task",
+                "project",
+                "note",
+                "inbox",
+                "event",
+                "settings",
+                "activity",
+                "automation",
+                "canvas",
+                "database",
+                "meal",
+                "file",
             ] {
                 ctx.data_changed(entity);
             }
             ok(json!({"restored": true}))
         }
 
-        other => Err(NexusError::NotFound(format!(
-            "comando desconocido: {other}"
-        ))),
+        // ------------------------------------------------------------- archivos
+        "files.save" => {
+            let name: String = arg(&payload, "name")?;
+            let mime = opt_arg(&payload, "mime")?
+                .unwrap_or_else(|| "application/octet-stream".to_string());
+            let data_b64: String = arg(&payload, "data_base64")?;
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(data_b64.as_bytes())
+                .map_err(|_| NexusError::validation("data_base64 inválido"))?;
+            let meta = s.files.save(&name, &mime, &bytes).await?;
+            ctx.data_changed("file");
+            ok(meta)
+        }
+        "files.get" => {
+            let id: String = arg(&payload, "id")?;
+            let (meta, bytes) = s.files.read(&id).await?;
+            use base64::Engine;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            ok(json!({"meta": meta, "data_base64": b64}))
+        }
+        "files.list" => ok(s.files.list().await?),
+        "files.delete" => {
+            s.files.delete(&arg::<String>(&payload, "id")?).await?;
+            ctx.data_changed("file");
+            ok(json!({"deleted": true}))
+        }
+
+        other => {
+            if let Some(rest) = other.strip_prefix("canvas.") {
+                return crate::dispatch_canvas::dispatch(ctx, rest, payload).await;
+            }
+            if let Some(rest) = other.strip_prefix("databases.") {
+                return crate::dispatch_databases::dispatch(ctx, rest, payload).await;
+            }
+            if let Some(rest) = other.strip_prefix("meals.") {
+                return crate::dispatch_meals::dispatch(ctx, rest, payload).await;
+            }
+            Err(NexusError::NotFound(format!(
+                "comando desconocido: {other}"
+            )))
+        }
     }
 }

@@ -41,8 +41,37 @@ impl BackupService {
         let runs = repos::runs::list_runs(&self.db, 1000).await?;
         let activity = repos::activity::list(&self.db, 500, None, None).await?;
         let app = repos::settings::get(&self.db, "app").await?;
+
+        // Módulos nuevos: Canvas, Database y Meal Planner (solo metadatos;
+        // los bytes de los adjuntos viven en <data_dir>/files y se incluyen
+        // en los backups SQLite completos, no en el JSON).
+        let mut canvases = Vec::new();
+        for c in repos::canvas::list(&self.db).await? {
+            canvases.push(repos::canvas::get(&self.db, &c.id).await?);
+        }
+        let mut databases = Vec::new();
+        for d in repos::databases::list_databases(&self.db).await? {
+            let detail = crate::databases::DatabaseService {
+                db: self.db.clone(),
+            }
+            .get(&d.database.id)
+            .await?;
+            let records = repos::databases::all_records(&self.db, &d.database.id).await?;
+            databases.push(serde_json::json!({"database": detail, "records": records}));
+        }
+        let recipes = repos::meals::list_recipes(&self.db, &Default::default()).await?;
+        let pantry = repos::meals::list_pantry(&self.db, &Default::default()).await?;
+        let menu_templates = repos::meals::list_menu_templates(&self.db).await?;
+        let mut shopping = Vec::new();
+        for l in repos::meals::list_shopping_lists(&self.db).await? {
+            let items = repos::meals::list_shopping_items(&self.db, &l.id).await?;
+            shopping.push(serde_json::json!({"list": l, "items": items}));
+        }
+        let files = repos::files::list(&self.db).await?;
+        let automations = repos::automations::list(&self.db, false).await?;
+
         Ok(serde_json::json!({
-            "version": 1,
+            "version": 2,
             "exported_at": Utc::now().to_rfc3339(),
             "tasks": tasks,
             "projects": projects,
@@ -53,6 +82,14 @@ impl BackupService {
             "runs": runs,
             "activity": activity,
             "settings": app,
+            "canvases": canvases,
+            "databases": databases,
+            "recipes": recipes,
+            "pantry": pantry,
+            "menu_templates": menu_templates,
+            "shopping_lists": shopping,
+            "files": files,
+            "automations": automations,
         }))
     }
 
@@ -112,7 +149,12 @@ impl BackupService {
             }
             for table in [
                 "chat_messages", "conversations", "tool_calls", "approvals", "agent_runs", "activity_events",
+                "automation_step_logs", "automation_approvals", "automation_executions", "automation_fired_marks", "automations",
+                "shopping_items", "shopping_lists", "meal_plan_entries", "menu_templates", "pantry_items", "recipes",
+                "db_views", "db_records", "db_fields", "databases",
+                "canvases",
                 "inbox_items", "events", "notes_fts", "notes", "tasks", "projects",
+                "files",
             ] {
                 sqlx::query(&format!("DELETE FROM main.{table}")).execute(&mut *conn).await.db()?;
                 // Backups antiguos pueden no tener tablas añadidas en migraciones posteriores.

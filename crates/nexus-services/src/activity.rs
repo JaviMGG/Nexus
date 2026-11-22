@@ -59,6 +59,48 @@ impl ActivityService {
                     .map_err(|e| NexusError::Internal(format!("estado previo inválido: {e}")))?;
                 repos::events::write(&self.db, &before).await?;
             }
+            ("meals_delete_recipe", _) => repos::meals::soft_delete_recipe(&self.db, id).await?,
+            ("meals_restore_recipe", _) => {
+                let recipe: nexus_core::Recipe = serde_json::from_value(undo["recipe"].clone())
+                    .map_err(|e| NexusError::Internal(format!("estado previo inválido: {e}")))?;
+                crate::meals::MealService {
+                    db: self.db.clone(),
+                }
+                .restore_recipe(recipe)
+                .await?;
+            }
+            ("meals_delete_plan_entry", _) => repos::meals::delete_plan_entry(&self.db, id).await?,
+            ("meals_restore_plan_entry", _) => {
+                let entry: nexus_core::MealPlanEntry =
+                    serde_json::from_value(undo["entry"].clone()).map_err(|e| {
+                        NexusError::Internal(format!("estado previo inválido: {e}"))
+                    })?;
+                crate::meals::MealService {
+                    db: self.db.clone(),
+                }
+                .restore_plan_entry(entry)
+                .await?;
+            }
+            ("meals_delete_pantry_item", _) => {
+                repos::meals::delete_pantry_item(&self.db, id).await?
+            }
+            ("meals_restore_pantry_item", _) => {
+                let item: nexus_core::PantryItem = serde_json::from_value(undo["item"].clone())
+                    .map_err(|e| NexusError::Internal(format!("estado previo inválido: {e}")))?;
+                crate::meals::MealService {
+                    db: self.db.clone(),
+                }
+                .restore_pantry_item(item)
+                .await?;
+            }
+            ("meals_delete_menu_template", _) => {
+                repos::meals::delete_menu_template(&self.db, id).await?
+            }
+            ("meals_delete_shopping_list", _) => {
+                repos::meals::delete_shopping_list(&self.db, id).await?
+            }
+            ("delete", "canvas") => repos::canvas::soft_delete(&self.db, id).await?,
+            ("restore", "canvas") => repos::canvas::restore(&self.db, id).await?,
             _ => {
                 return Err(NexusError::Conflict(format!(
                     "operación no reversible: {op} {entity}"

@@ -1,8 +1,12 @@
 pub mod activity;
 pub mod automations;
+pub mod canvas;
 pub mod chat;
+pub mod databases;
 pub mod events;
+pub mod files;
 pub mod inbox;
+pub mod meals;
 pub mod notes;
 pub mod projects;
 pub mod runs;
