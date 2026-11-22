@@ -33,6 +33,7 @@ extraerse a un servicio independiente sin reescribir el dominio.
 │  nexus-services — servicios de aplicación                              │
 │  tasks · projects · notes · inbox · chat · activity(undo) · settings   │
 │  dashboard · backup · capture heurística · validación                  │
+│  canvas · databases (campos/vistas/fórmulas) · meals · files           │
 ├────────────────────────────────────────────────────────────────────────┤
 │  nexus-db — SQLite (WAL) + SQLx · migraciones versionadas · FTS5       │
 ├────────────────────────────────────────────────────────────────────────┤
@@ -122,6 +123,36 @@ Controles implementados:
 `agents.start` devuelve error claro sin crear runs; la captura rápida cae a la heurística local.
 El estado (`connected/disconnected/error`) se emite por SSE y se muestra en el sidebar.
 
+## Herramientas: Canvas, Database y Meal Planner
+
+Tres módulos internos del monolito (migraciones 0004–0007), cada uno con su capa completa:
+modelos en `nexus-core` (`canvas.rs`, `databases.rs`, `meals.rs`), repos en `nexus-db`,
+servicios en `nexus-services` y comandos enrutados por prefijo desde `dispatch.rs` hacia
+`dispatch_canvas.rs` / `dispatch_databases.rs` / `dispatch_meals.rs` en `nexus-app`.
+
+- **Canvas**: documento JSON versionado `{elements, edges, viewport}` validado en backend
+  (tipos, geometría finita, aristas a elementos existentes, límites 5000/10000). Undo/redo y
+  autoguardado (debounce 800 ms) viven en el editor React Flow; `save_document` no audita.
+  Referencias cruzadas por id (`task_ref`, `project_ref`, `note_ref`, `database_ref`,
+  `recipe_ref`) sin duplicar datos. Export PNG/SVG en frontend (html-to-image), JSON en backend.
+- **Database**: esquemas dinámicos (`db_fields.kind` + `config_json`), valores por registro en
+  `values_json` validados por tipo; borrado de campos y registros con soft-delete (los datos
+  no se pierden). Fórmulas con parser Pratt propio (sin eval, límites de profundidad);
+  filtros/orden con QueryBuilder + `json_extract` (jamás SQL de usuario/IA). Relaciones como
+  arrays de ids con limpieza transaccional al borrar. Import CSV/JSON con preview y mapeo.
+- **Meals**: recetas con ingredientes estructurados; consolidación de la compra por
+  (nombre normalizado, unidad) — nunca convierte unidades; planner anclado al lunes
+  (`week_start`), menús plantilla con `day_offset` relativo; despensa con caducidad solo de
+  fechas del usuario y `pantry_matches` por cobertura. Nutrición opcional, jamás estimada.
+- **Files** (compartido): bytes en `<data_dir>/files/<uuid>` con permisos 0600, metadatos en
+  la tabla `files`, máx. 25 MB; comandos `files.*` con base64. `Services::with_data_dir`
+  inyecta el directorio real; los tests usan `Services::new` (dir por defecto).
+- **IA opcional**: helper `nexus_app::ai_json::ask_json` (timeout 60 s, JSON estricto,
+  `AiUnavailable` claro sin proveedor). Todas las salidas de IA son propuestas revisables.
+- **Backups**: la restauración SQLite incluye las tablas nuevas (orden respetando FKs) y la
+  exportación JSON (version 2) incluye canvases, databases+registros, recetas, despensa,
+  menús, listas y metadatos de archivos.
+
 ## Automation Center (`nexus-automation`)
 
 Motor local de automatizaciones con responsabilidades separadas:
@@ -184,7 +215,9 @@ Tablas: `projects`, `tasks` (jerárquicas, soft-delete), `events` (calendario), 
 (FTS5 sincronizada transaccionalmente), `inbox_items`, `conversations`, `chat_messages`,
 `agent_runs`, `tool_calls`, `approvals`, `activity_events` (con `undo_json`), `settings`,
 `automations`, `automation_executions`, `automation_step_logs`, `automation_approvals`,
-`automation_fired_marks`.
+`automation_fired_marks`, `files`, `canvases`, `databases`, `db_fields`, `db_records`,
+`db_views`, `recipes`, `meal_plan_entries`, `menu_templates`, `shopping_lists`,
+`shopping_items`, `pantry_items`.
 
 - **Undo**: las mutaciones guardan el estado previo o la operación inversa; `activity.undo` la
   aplica y consume el registro (no doble undo).
@@ -197,10 +230,10 @@ Tablas: `projects`, `tasks` (jerárquicas, soft-delete), `events` (calendario), 
 - **Estado servidor**: TanStack Query; las mutaciones invalidan keys y los eventos SSE
   (`useAppEvents`) mantienen todo sincronizado en vivo, incluido el streaming del chat.
 - **Estado cliente**: Zustand (`theme`, `ui`).
-- **Temas y paletas**: variables CSS (`--background`, `--primary`, `--accent`, …) con 17 paletas ×
+- **Temas y paletas**: variables CSS (`--background`, `--primary`, `--accent`, …) con 18 paletas ×
   dark/light definidas en `index.css` (6 básicas de acento + 8 avanzadas de tema completo: Nord,
-  Dracula, Tokyo Night, Catppuccin, Gruvbox, Everforest, Kanagawa, Cyberpunk + 3 otras: Odysseus,
-  Expedition 33, Vice City); Tailwind 4 las
+  Dracula, Tokyo Night, Catppuccin, Gruvbox, Everforest, Kanagawa, Cyberpunk + 4 otras: Odysseus,
+  Expedition 33, Vice City, Blackwall); Tailwind 4 las
   mapea con `@theme inline`. El store aplica
   `data-palette` + clase `dark/light` al instante, persiste en localStorage (anti-flash en
   `index.html`) y sincroniza con el backend (`settings.update`).
@@ -229,5 +262,14 @@ Tablas: `projects`, `tasks` (jerárquicas, soft-delete), `events` (calendario), 
   deduplicación, recuperación tras reinicio, autorizaciones (aprobar/rechazar), cancelación,
   límites de pasos/llamadas, reintentos, modos local/IA/híbrido con MockProvider, encadenado,
   plantillas instalables y overview.
+- `nexus-services/tests/canvas.rs` (13): CRUD, duplicado con ids nuevos, documento idéntico
+  tras guardar/recuperar, validación de tipos/aristas/ids, plantillas, export/import JSON,
+  task_ref con tarea real, auditoría.
+- `nexus-services/tests/databases.rs` (21 + 5 del parser): CRUD, validaciones por tipo,
+  reorder y soft-delete de campos, fórmulas e2e, filtros AND/OR, relaciones y limpieza,
+  vistas, import CSV con mapeo, export roundtrip, plantillas, adjuntos.
+- `nexus-services/tests/meals.rs` (18): recetas, escalado de raciones, planner, menús,
+  consolidación de compra (unidades incompatibles nunca se suman), despensa, caducidades,
+  pantry_matches, nutrición IA descartada.
 - `nexus-app` (3): parsing de captura IA con fallback.
 - `scripts/e2e.mjs` (28): API real end-to-end incluyendo SSE en vivo y modo sin IA.

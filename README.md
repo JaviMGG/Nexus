@@ -37,12 +37,26 @@ funciones manuales siguen disponibles y la app lo indica claramente (modo degrad
   (Local / IA / Híbrido). Las automatizaciones locales funcionan **sin IA y offline**.
 - **Actividad**: ejecuciones con trazabilidad de herramientas, aprobaciones pendientes,
   auditoría completa con **deshacer** operaciones.
-- **Ajustes**: perfil, **17 paletas de colores intercambiables** + dark/light, proveedores de IA
+- **Ajustes**: perfil, **18 paletas de colores intercambiables** + dark/light, proveedores de IA
   (API key, base URL, modelo, prueba de conexión), permisos de agentes, límites de uso,
   exportación JSON y copias de seguridad con restauración.
 - **Acerca de**: documentación integrada para cualquier usuario — qué es NEXUS, qué hace cada
   sección, **diagnóstico en vivo** (servicio local, estado de IA, proveedores, motor de
   automatizaciones) y preguntas frecuentes con soluciones a los problemas típicos.
+- **Canvas**: pizarra digital infinita (React Flow) con notas adhesivas, texto, formas,
+  flechas, imágenes y **referencias vivas** a tareas, proyectos, notas, bases de datos y
+  recetas; grupos, capas, alineación, deshacer/rehacer, autoguardado, minimapa, 6 plantillas
+  (mind map, flowchart, brainstorming…) y exportación PNG/SVG/JSON.
+- **Bases de datos**: constructor tipo Airtable/Notion sin programar — 17 tipos de campo
+  (texto, números, fechas, selects, checkbox, URL/email/teléfono, imagen/archivo, valoración,
+  **relaciones entre bases** y **fórmulas** seguras), 5 vistas guardadas por base
+  (tabla editable, kanban drag&drop, galería, calendario, lista), filtros AND/OR, ordenación,
+  import/export CSV y JSON con mapeo de columnas, y 8 plantillas editables.
+- **Comidas (Meal Planner)**: recetario con fotos e ingredientes estructurados, escalado de
+  raciones, planificador semanal (7 días × 5 comidas) con drag&drop y menús reutilizables,
+  **lista de la compra automática** (consolida ingredientes, suma solo unidades compatibles,
+  agrupa por categorías, historial y exportación) y **despensa** con caducidades y
+  "¿qué puedo cocinar?" según tu stock.
 
 ## Stack
 
@@ -187,7 +201,7 @@ rápida usa análisis heurístico local. Ningún error por falta de API key.
 
 ## Paletas de colores
 
-**17 paletas** × modos **dark/light**:
+**18 paletas** × modos **dark/light**:
 
 - **Básicas**: Violet, Graphite, Ocean, Forest, Sunset, Rose.
 - **Avanzados** (temas completos con superficies, bordes y acentos propios, inspirados en esquemas
@@ -195,11 +209,66 @@ rápida usa análisis heurístico local. Ningún error por falta de API key.
   **Catppuccin** (pasteles Mocha/Latte), **Gruvbox** (retro cálido), **Everforest** (bosque
   brumoso), **Kanagawa** (ola japonesa) y **Cyberpunk** (magenta/cian eléctrico).
 - **Otros**: **Odysseus** (carbón tecnológico y cian coral), **Expedition 33** (oro cálido y rosa
-  Belle Époque) y **Vice City** (rosa neón GTA VI, cian y atardecer ochentero).
+  Belle Époque), **Vice City** (rosa neón GTA VI, cian y atardecer ochentero) y **Blackwall**
+  (protocolo SCARLET de Cyberpunk 2077: escarlata #FF0055, verde neón y turquesa sobre negro azulado).
 
 Cámbialas desde el selector del sidebar o desde **Ajustes → Apariencia**, donde cada paleta
 incluye una mini-previsualización real de la interfaz. La elección se persiste en el backend y
 se aplica al instante mediante variables CSS.
+
+## Herramientas: Canvas, Bases de datos y Comidas
+
+Tres módulos completos del grupo **Herramientas** del sidebar. Todo funciona **sin IA y sin
+conexión**; la IA (Qwen u otro proveedor) añade capacidades opcionales que siempre se
+presentan como **propuestas revisables** — nunca modifica nada sin tu confirmación.
+
+### Canvas (`/canvas`)
+- Lienzo infinito con zoom/pan, selección múltiple, copiar/pegar, duplicar, deshacer/rehacer
+  (Ctrl+Z/Y), grupos (Ctrl+G), capas, alineación/distribución y cuadrícula opcional.
+- Elementos: notas adhesivas, texto, rectángulos, elipses, líneas, flechas, imágenes, enlaces,
+  tarjetas y **referencias vivas** (tarea con checkbox para completarla, proyecto, nota, base
+  de datos, receta) que abren su módulo al doble clic. Cualquier nodo de texto puede
+  convertirse en tarea real.
+- Autoguardado con debounce e indicador; 6 plantillas; exportación **PNG/SVG/JSON** e
+  importación JSON validada.
+- IA opcional: generar mapas mentales desde una descripción, ampliar ramas, resumir el
+  canvas y proponer conexiones (aceptas una a una o todas).
+
+### Bases de datos (`/databases`)
+- Bases con nombre, icono y color; **17 tipos de campo** con validación específica, incluidos
+  relaciones (1:1, 1:N, N:M con navegación entre registros) y fórmulas seguras (parser propio:
+  aritmética, comparaciones, concatenación, IF/CONCAT/ROUND/ABS/LEN/UPPER/LOWER/TODAY/DAYS y
+  referencias `{Campo}`; jamás se evalúa código).
+- **5 vistas** por base con configuración independiente: tabla editable (orden, selección
+  múltiple, borrado masivo), kanban con drag&drop, galería con imágenes, calendario por campo
+  de fecha y lista compacta. Filtros múltiples AND/OR y ordenación por varios campos.
+- **Vista Esquema**: diagrama entidad-relación de tus bases conectadas — cada tabla con sus
+  campos, clave primaria (PK), claves ajenas (FK) y flechas de relación con cardinalidad
+  (1:1, 1:N, N:M); clic en una tabla para abrir esa base.
+- Import/export **CSV y JSON** con vista previa y mapeo de columnas (máx. 5 MB / 10 000 filas).
+- 8 plantillas editables (videojuegos, películas, libros, hardware, cursos, colección, apps,
+  proyectos) con registros de ejemplo coherentes.
+- IA opcional: crear estructuras desde una descripción, sugerir campos y detectar duplicados
+  (heurística local si no hay proveedor).
+- Borrar campos no destruye datos (soft-delete); borrar registros limpia las relaciones.
+
+### Comidas (`/meals`)
+- **Recetario**: fotos, ingredientes estructurados (cantidad/unidad/categoría), raciones,
+  tiempos, dificultad, pasos, favoritos, búsqueda y filtros; nutrición opcional **solo si tú
+  la introduces** (la IA nunca la inventa).
+- **Semana**: grid 7×5 (desayuno/almuerzo/comida/merienda/cena) con drag&drop de recetas,
+  raciones por comida, duplicar/mover y menús guardados aplicables a cualquier semana.
+- **Compra**: generada del menú, consolida ingredientes (suma solo unidades idénticas; g y kg
+  NO se mezclan), agrupa por categorías, checkboxes persistentes, productos manuales,
+  historial de listas, copiar al portapapeles y exportar TXT/CSV.
+- **Despensa**: stock con ubicación y caducidad (solo fechas tuyas), consumos, avisos de
+  caducado/próximo a caducar y **"¿Qué puedo cocinar?"** con % de cobertura y faltantes.
+- IA opcional: recetas desde ingredientes, propuestas de menú semanal (con tus recetas
+  reales), sustituciones y resumen de la semana.
+
+Los tres módulos comparten el sistema de **archivos adjuntos** (bytes en `<data_dir>/files`
+con permisos 0600, metadatos en SQLite, máx. 25 MB) y se referencian entre sí por id sin
+duplicar datos. Sus datos se incluyen en la exportación JSON y en los backups SQLite.
 
 ## Automation Center
 
@@ -271,8 +340,8 @@ con `install.sh`).
 ## Tests y verificación
 
 ```bash
-cargo test --workspace          # 98 tests: dominio, persistencia, servicios, IA, herramientas,
-                                # agentes, eventos y motor de automatizaciones (43)
+cargo test --workspace          # 156 tests: dominio, persistencia, servicios, IA, herramientas,
+                                # agentes, automatizaciones (43), canvas (13), databases (26), meals (18)
 cargo clippy --workspace --all-targets
 cargo fmt --all --check
 cd frontend && npm run build    # typecheck + build de producción
@@ -355,6 +424,15 @@ Las migraciones de base de datos se aplican automáticamente al arrancar; tus da
   las condiciones complejas AND/OR/NOT anidadas se editan como JSON en la condición raíz
   (el lienzo edita condiciones hoja: métrica/campo + operador + valor).
 - **Multiusuario**: NEXUS es monousuario y local; el servicio HTTP solo escucha en loopback.
+- **Canvas**: el deshacer/rehacer vive en la sesión del editor (no persiste entre aperturas);
+  las referencias a otros módulos cachean el título hasta refrescar; export SVG puede omitir
+  imágenes si el navegador bloquea su serialización (avisa).
+- **Bases de datos**: las fórmulas no se pueden usar como filtro de servidor (sí para ordenar);
+  la importación no crea relaciones ni adjuntos desde texto; kanban agrupa por campos de
+  selección único; límite de 1000 registros por consulta en las vistas (el backend pagina).
+- **Comidas**: las unidades no se convierten entre sí (g≠kg, ml≠l) por diseño — la compra
+  muestra líneas separadas; "¿qué puedo cocinar?" compara con las raciones base de la receta;
+  la nutrición es opcional y nunca se estima automáticamente.
 - El icono de la app es el logo oficial (`crates/nexus-desktop/icons/logo-master.png`): se usa
   en el bundle de escritorio (todos los tamaños + `.ico` de Windows), en el lanzador de
   `install.sh`, como favicon web y dentro de la propia interfaz. Para cambiarlo, sustituye el

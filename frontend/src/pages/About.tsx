@@ -7,13 +7,16 @@ import {
   Bot,
   CheckCircle2,
   ChevronDown,
+  CookingPot,
   Database,
   HelpCircle,
   Info,
   Keyboard,
+  PenTool,
   RefreshCw,
   ShieldCheck,
   Sparkles,
+  Table2,
   Wifi,
   WifiOff,
   Workflow,
@@ -29,7 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 
-const APP_VERSION = "0.1.2";
+const APP_VERSION = "0.1.3";
 
 // ---------------------------------------------------------------------------
 // Piezas reutilizables
@@ -143,7 +146,7 @@ function Diagnostics() {
                 ? `Conectada a ${ai.provider ?? "proveedor"} (${ai.model ?? "modelo"}). Los agentes y el modo IA están disponibles.`
                 : ai?.state === "error"
                   ? `El proveedor respondió con error: ${ai.message ?? "sin detalle"}. Revisa la API key y el modelo en Ajustes → Inteligencia Artificial.`
-                  : "Sin proveedor conectado. No pasa nada: todo lo manual y las automatizaciones locales siguen funcionando. Para activar la IA, ve a Ajustes → Inteligencia Artificial."
+                  : "Sin proveedor conectado. No pasa nada: todo lo manual — incluidas automatizaciones locales, Canvas, Bases de datos y Comidas — sigue funcionando. Para activar la IA, ve a Ajustes → Inteligencia Artificial."
             }
           />
           <Row
@@ -163,8 +166,13 @@ function Diagnostics() {
             detail={
               settings.data?.app.automations.enabled === false
                 ? "Pausadas: ninguna automatización se ejecutará hasta que se reactiven."
-                : `En marcha. Límite diario de IA: ${(settings.data?.app.automations.daily_token_limit ?? 0).toLocaleString("es-ES")} tokens. ${settings.data?.app.automations.run_in_background ? "Aunque cierres la ventana, NEXUS sigue trabajando desde el iconito junto al reloj." : "Solo trabajan con la ventana abierta. Si quieres que sigan al cerrar, activa «Que NEXUS siga trabajando aunque cierres la ventana» en Ajustes → Automatizaciones."}`
+                  : `En marcha. Límite diario de IA: ${(settings.data?.app.automations.daily_token_limit ?? 0).toLocaleString("es-ES")} tokens. ${settings.data?.app.automations.run_in_background ? "Aunque cierres la ventana, NEXUS sigue trabajando desde el iconito junto al reloj y sus avisos llegan como notificaciones del sistema." : "Solo trabajan con la ventana abierta. Si quieres que sigan al cerrar, activa «Que NEXUS siga trabajando aunque cierres la ventana» en Ajustes → Automatizaciones."}`
             }
+          />
+          <Row
+            ok
+            label="Herramientas (Canvas · Bases de datos · Comidas)"
+            detail="Disponibles y 100% locales: no dependen de Internet ni de la IA. Sus datos e imágenes se guardan en este equipo y se incluyen en las copias de seguridad."
           />
         </ul>
       )}
@@ -208,7 +216,9 @@ export function AboutPage() {
         </div>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
           NEXUS es tu <b className="text-foreground">segundo cerebro</b>: reúne tareas, proyectos, calendario y notas
-          en un solo sitio, y puede trabajar por ti gracias a agentes de inteligencia artificial y automatizaciones.
+          en un solo sitio, añade herramientas potentes — <b className="text-foreground">Canvas</b> (pizarra infinita),{" "}
+          <b className="text-foreground">Bases de datos</b> personalizadas y <b className="text-foreground">Comidas</b>{" "}
+          (recetas, menús y compra) — y puede trabajar por ti gracias a agentes de IA y automatizaciones.
           Todo vive en <b className="text-foreground">tu equipo</b>: no hay servidores externos, no hay cuentas y tus
           datos no salen de tu ordenador. La IA es opcional: sin ella, NEXUS sigue funcionando al 100% en modo manual.
         </p>
@@ -222,6 +232,9 @@ export function AboutPage() {
           </Feature>
           <Feature icon={BookOpen} title="Conocimiento" to="/knowledge">
             Notas, ideas, documentos y enlaces con editor Markdown y búsqueda instantánea de texto completo.
+          </Feature>
+          <Feature icon={Database} title="Calendario" to="/calendar">
+            Vista mensual de eventos con horas, colores y ubicación; superposición opcional de tareas con fecha límite.
           </Feature>
           <Feature icon={Keyboard} title="Captura rápida (Ctrl/⌘ + K)" to="/inbox">
             Escribe cualquier cosa desde cualquier pantalla: NEXUS detecta si es una tarea o una nota y la guarda.
@@ -238,6 +251,20 @@ export function AboutPage() {
           <Feature icon={ShieldCheck} title="Control total" to="/activity">
             Cada cambio queda auditado y se puede deshacer. Las acciones sensibles piden tu autorización explícita.
             Copias de seguridad y exportación completas desde Ajustes.
+          </Feature>
+          <Feature icon={PenTool} title="Canvas" to="/canvas">
+            Pizarra infinita para organizar ideas: notas adhesivas, formas, flechas e imágenes, con referencias
+            vivas a tus tareas, proyectos, notas, bases de datos y recetas. Grupos, capas, deshacer/rehacer,
+            autoguardado, 6 plantillas y exportación PNG/SVG/JSON.
+          </Feature>
+          <Feature icon={Table2} title="Bases de datos" to="/databases">
+            Crea tus propias bases tipo Airtable sin programar: 17 tipos de campo, relaciones, fórmulas seguras,
+            5 vistas (tabla, kanban, galería, calendario, lista), vista <b>Esquema</b> con tablas y relaciones,
+            filtros y import/export CSV/JSON. 8 plantillas.
+          </Feature>
+          <Feature icon={CookingPot} title="Comidas" to="/meals">
+            Recetario con fotos y raciones ajustables, menú semanal con drag&drop, lista de la compra automática
+            que suma ingredientes y agrupa por categorías, y despensa con caducidades y «¿qué puedo cocinar?».
           </Feature>
         </div>
       </Section>
@@ -332,6 +359,58 @@ export function AboutPage() {
             con un botón <b>Deshacer</b> que restaura el estado anterior. Además, puedes restringir los permisos
             (Ajustes → Permisos) o poner las automatizaciones en «pedir autorización» para que nada se ejecute sin tu visto bueno.
           </Faq>
+          <Faq q="¿Canvas, Bases de datos y Comidas necesitan IA?">
+            No. Los tres módulos funcionan al 100% sin proveedor y sin conexión: crear, editar, organizar,
+            importar/exportar y planificar es todo local. La IA solo añade extras opcionales (generar mapas
+            mentales, proponer estructuras de base de datos, sugerir recetas o menús) y siempre como{" "}
+            <b>propuestas que tú revisas y confirmas</b>: nunca modifica nada por su cuenta. Si no hay
+            proveedor, verás un aviso claro y el resto sigue funcionando.
+          </Faq>
+          <Faq q="En la lista de la compra, ¿por qué no se suman gramos con kilos?">
+            Es deliberado: NEXUS <b>nunca convierte ni mezcla unidades distintas</b> (g ≠ kg, ml ≠ l, ud ≠ g)
+            para no darte cantidades erróneas. Los ingredientes con el mismo nombre y la misma unidad se suman;
+            si las unidades difieren, aparecen como líneas separadas. Puedes editar las cantidades a mano.
+            Lo mismo aplica al escalado de raciones: multiplica cantidades, no cambia unidades.
+          </Faq>
+          <Faq q="¿Dónde se guardan las imágenes que subo a recetas, canvas o bases de datos?">
+            En tu equipo: los archivos viven en la carpeta de datos de NEXUS (<code className="rounded bg-muted px-1 text-[11px]">files/</code>,
+            permisos restringidos) y la base de datos solo guarda la referencia. Máximo 25 MB por archivo.
+            Se incluyen en las copias de seguridad SQLite; la exportación JSON incluye los metadatos.
+          </Faq>
+          <Faq q="Cerré el canvas y al volver no puedo deshacer. ¿Se perdió algo?">
+            No se perdió nada: el canvas se <b>autoguarda</b> mientras trabajas (verás «Guardado» arriba).
+            Lo que no persiste entre sesiones es la <b>pila de deshacer/rehacer</b>: al reabrir, el contenido
+            está tal cual lo dejaste, pero Ctrl+Z empieza de cero. Si exportaste el JSON, puedes reimportarlo
+            como canvas nuevo en cualquier momento.
+          </Faq>
+          <Faq q="¿Qué es la vista «Esquema» de las bases de datos?">
+            Un diagrama de tus tablas y cómo se conectan: cada base aparece con sus campos, la clave primaria
+            (<b>PK</b>, el id único de cada registro) y las claves ajenas (<b>FK</b>, campos de relación que
+            apuntan a otra base). Las flechas muestran la cardinalidad: 1:1 (un registro con uno), 1:N (uno con
+            varios) y N:M (varios con varios). Clic en la cabecera de una tabla para abrir esa base. Si no ves
+            flechas, es que aún no has creado campos de tipo Relación.
+          </Faq>
+          <Faq q="Las notificaciones de automatizaciones no aparecen con la ventana cerrada">
+            Con «Que NEXUS siga trabajando aunque cierres la ventana» activo, los avisos de las automatizaciones
+            se envían como <b>notificaciones del sistema</b> (las mismas que usan otras apps). Si no las ves:
+            comprueba que tu sistema no tenga las notificaciones desactivadas o en «no molestar», y que NEXUS
+            siga en la bandeja (iconito junto al reloj). Con la ventana abierta, los avisos aparecen dentro de
+            la app, abajo a la derecha.
+          </Faq>
+          <Faq q="Borré un campo de mi base de datos. ¿Perdí los datos?">
+            No: al eliminar un campo, sus valores <b>se conservan</b> internamente (borrado lógico). Si vuelves
+            a crear un campo con el mismo nombre exacto, los datos antiguos no se recuperan automáticamente,
+            pero siguen en la base y en tus copias de seguridad. Al borrar registros, las relaciones que
+            apuntaban a ellos se limpian solas para no dejar enlaces rotos.
+          </Faq>
+          <Faq q="¿Qué fórmulas puedo usar en las bases de datos?">
+            Aritmética (<code className="rounded bg-muted px-1 text-[11px]">+ - * / %</code>), comparaciones
+            (<code className="rounded bg-muted px-1 text-[11px]">= != &lt; &gt; &lt;= &gt;=</code>), concatenación
+            con <code className="rounded bg-muted px-1 text-[11px]">&amp;</code>, referencias a campos entre llaves
+            (<code className="rounded bg-muted px-1 text-[11px]">{"{Precio}"} * {"{Cantidad}"}</code>) y funciones:
+            IF, CONCAT, ROUND, ABS, LEN, UPPER, LOWER, TODAY y DAYS entre fechas. Se calculan al vuelo y es
+            imposible que ejecuten código: el motor es un intérprete propio, cerrado y seguro.
+          </Faq>
         </div>
       </Section>
 
@@ -342,7 +421,10 @@ export function AboutPage() {
           <li><b className="text-foreground">Ctrl/⌘ + K</b>: captura rápida desde cualquier pantalla.</li>
           <li><b className="text-foreground">Supr</b> con una flecha seleccionada en el constructor: desconecta dos nodos.</li>
           <li>Arrastra bloques al lienzo de automatizaciones y conéctalos de izquierda a derecha; las condiciones tienen salida «sí» y «no».</li>
-          <li>El selector de paleta del sidebar cambia el tema al instante (16 paletas × claro/oscuro).</li>
+          <li><b className="text-foreground">Canvas</b>: Ctrl+Z / Ctrl+Y deshacer y rehacer · Ctrl+C/V copiar y pegar · Ctrl+D duplicar ·
+            Ctrl+G agrupar (Ctrl+Shift+G desagrupar) · Supr eliminar · doble clic para escribir · Shift+clic o arrastrar para selección múltiple.</li>
+          <li><b className="text-foreground">Comidas</b>: arrastra recetas de la tira lateral a cualquier día; el selector de raciones recalcula los ingredientes al momento.</li>
+          <li>El selector de paleta del sidebar cambia el tema al instante (18 paletas × claro/oscuro, incluidas Vice City y Blackwall).</li>
           <li>Las búsquedas de Conocimiento usan el índice de texto completo de SQLite: encuentran palabras dentro de tus notas al momento.</li>
         </ul>
       </Section>
@@ -361,7 +443,10 @@ export function AboutPage() {
           Límites conocidos de esta versión: el segundo plano usa la bandeja del sistema (no un servicio del
           sistema operativo que arranque solo con el equipo); la búsqueda web del agente investigador requiere un
           proveedor de búsqueda configurado (si no, lo dice explícitamente y no inventa fuentes); no hay sesiones
-          de concentración todavía; la app es monousuario y local.
+          de concentración todavía; la app es monousuario y local. En las herramientas: el deshacer del canvas no
+          persiste entre sesiones; las fórmulas de bases de datos no se pueden usar como filtro (sí para ordenar);
+          la importación CSV no crea relaciones ni adjuntos; las unidades de cocina nunca se convierten entre sí
+          (g ≠ kg) y la nutrición de las recetas solo existe si tú la introduces — la IA jamás la estima.
         </p>
         <p className="flex items-center gap-1.5 text-xs">
           <Info className="h-3.5 w-3.5" />
