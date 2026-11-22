@@ -18,6 +18,9 @@ import { AgentsPage } from "@/pages/Agents";
 import { ActivityPage } from "@/pages/Activity";
 import { AutomationsPage } from "@/pages/Automations";
 import { AboutPage } from "@/pages/About";
+import { CanvasPage } from "@/pages/Canvas";
+import { DatabasesPage } from "@/pages/Databases";
+import { MealsPage } from "@/pages/Meals";
 import { SettingsPage } from "@/pages/Settings";
 
 export default function App() {
@@ -49,6 +52,11 @@ export default function App() {
             <Route path="/automations" element={<AutomationsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/about" element={<AboutPage />} />
+            <Route path="/canvas" element={<CanvasPage />} />
+            <Route path="/canvas/:id" element={<CanvasPage />} />
+            <Route path="/databases" element={<DatabasesPage />} />
+            <Route path="/databases/:id" element={<DatabasesPage />} />
+            <Route path="/meals" element={<MealsPage />} />
           </Route>
         </Routes>
       </HashRouter>

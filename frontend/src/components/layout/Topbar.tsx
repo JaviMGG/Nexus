@@ -16,13 +16,16 @@ const TITLES: Record<string, string> = {
   "/automations": "Automatizaciones",
   "/settings": "Ajustes",
   "/about": "Acerca de",
+  "/canvas": "Canvas",
+  "/databases": "Bases de datos",
+  "/meals": "Comidas",
 };
 
 export function Topbar() {
   const { pathname } = useLocation();
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const setQuickCaptureOpen = useUiStore((s) => s.setQuickCaptureOpen);
-  const title = TITLES[pathname] ?? (pathname.startsWith("/projects/") ? "Proyecto" : pathname.startsWith("/chat") ? "Chat IA" : "NEXUS");
+  const title = TITLES[pathname] ?? (pathname.startsWith("/projects/") ? "Proyecto" : pathname.startsWith("/canvas/") ? "Canvas" : pathname.startsWith("/databases/") ? "Base de datos" : pathname.startsWith("/chat") ? "Chat IA" : "NEXUS");
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">

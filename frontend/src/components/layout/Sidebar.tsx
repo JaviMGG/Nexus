@@ -5,14 +5,17 @@ import {
   Bot,
   CalendarDays,
   CheckSquare,
+  CookingPot,
   FolderKanban,
   Inbox,
   Info,
   LayoutDashboard,
   MessagesSquare,
   Moon,
+  PenTool,
   Settings,
   Sun,
+  Table2,
   Workflow,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -44,6 +47,14 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { to: "/projects", label: "Proyectos", icon: FolderKanban },
       { to: "/calendar", label: "Calendario", icon: CalendarDays },
       { to: "/knowledge", label: "Conocimiento", icon: BookOpen },
+    ],
+  },
+  {
+    title: "Herramientas",
+    items: [
+      { to: "/canvas", label: "Canvas", icon: PenTool },
+      { to: "/databases", label: "Bases de datos", icon: Table2 },
+      { to: "/meals", label: "Comidas", icon: CookingPot },
     ],
   },
   {

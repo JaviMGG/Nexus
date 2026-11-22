@@ -16,6 +16,10 @@ const ENTITY_KEYS: Record<string, string[]> = {
   settings: ["settings"],
   automation: ["automations", "automation-overview", "automation-executions", "automation-approvals"],
   activity: ["activity"],
+  canvas: ["canvases"],
+  database: ["databases"],
+  meal: ["meals"],
+  file: ["files"],
 };
 
 export function useAppEvents() {
