@@ -169,19 +169,27 @@ function RefInput({
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const { options, isLoading } = useRefOptions(kind, open);
-  const q = value.trim().toLowerCase();
+  const [text, setText] = useState("");
+  const { options, isLoading } = useRefOptions(kind, true);
+  const token = REF_TOKEN[kind];
+  const selected = options.find((o) => o.id === value);
+  const display = open
+    ? text
+    : value === ""
+      ? ""
+      : token?.id === value
+        ? token.label
+        : (selected?.title ?? value);
+  const q = (open ? text : "").trim().toLowerCase();
   const suggestions = useMemo(() => {
     const matches = options
       .filter((o) => !q || o.title.toLowerCase().includes(q) || o.id.toLowerCase().includes(q))
       .slice(0, 8);
-    const token = REF_TOKEN[kind];
     if (token && (!q || token.id.includes(q) || token.label.toLowerCase().includes(q))) {
       return [{ id: token.id, title: token.label }, ...matches];
     }
     return matches;
-  }, [options, q, kind]);
-  const selected = options.find((o) => o.id === value);
+  }, [options, q, token]);
 
   const pick = (id: string) => {
     onChange(id);
@@ -192,16 +200,28 @@ function RefInput({
     <div className="relative">
       <Input
         className="h-8 text-xs"
-        value={value}
-        placeholder={placeholder ?? "Escribe para buscar por nombre o id…"}
+        value={display}
+        title={selected ? `id: ${value}` : undefined}
+        placeholder={placeholder ?? "Escribe para buscar por nombre…"}
         onChange={(e) => {
+          setText(e.target.value);
           onChange(e.target.value);
           setOpen(true);
           setActive(0);
         }}
-        onFocus={() => { setOpen(true); setActive(0); }}
-        onBlur={() => setOpen(false)}
+        onFocus={() => { setText(""); setOpen(true); setActive(0); }}
+        onBlur={() => {
+          if (text.trim() !== "") {
+            const match = options.find((o) => o.title.toLowerCase() === text.trim().toLowerCase());
+            onChange(match ? match.id : text.trim());
+          }
+          setOpen(false);
+        }}
         onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            setOpen(false);
+            return;
+          }
           if (!open || suggestions.length === 0) return;
           if (e.key === "ArrowDown") {
             e.preventDefault();
@@ -212,8 +232,6 @@ function RefInput({
           } else if (e.key === "Enter") {
             e.preventDefault();
             pick(suggestions[Math.min(active, suggestions.length - 1)].id);
-          } else if (e.key === "Escape") {
-            setOpen(false);
           }
         }}
       />
@@ -227,24 +245,18 @@ function RefInput({
               <button
                 type="button"
                 className={cn(
-                  "flex w-full flex-col px-2 py-1.5 text-left cursor-pointer",
+                  "block w-full truncate px-2 py-1.5 text-left text-xs cursor-pointer",
                   i === active ? "bg-accent" : "hover:bg-accent/60",
                 )}
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setActive(i)}
                 onClick={() => pick(s.id)}
               >
-                <span className="truncate text-xs">{REF_TOKEN[kind]?.id === s.id ? `«${s.id}» — ${s.title}` : s.title}</span>
-                {REF_TOKEN[kind]?.id !== s.id && (
-                  <span className="truncate font-mono text-[10px] text-muted-foreground">{s.id}</span>
-                )}
+                {token?.id === s.id ? `«${s.id}» — ${s.title}` : s.title}
               </button>
             </li>
           ))}
         </ul>
-      )}
-      {!open && selected && (
-        <p className="truncate text-[10px] text-muted-foreground">→ {selected.title}</p>
       )}
     </div>
   );
