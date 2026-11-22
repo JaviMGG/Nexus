@@ -10,6 +10,7 @@ pub mod flow;
 pub mod manager;
 pub mod runner;
 pub mod templates;
+mod tools_bridge;
 pub mod triggers;
 
 pub use manager::AutomationManager;

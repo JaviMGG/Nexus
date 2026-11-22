@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ApprovalCard } from "@/components/chat/ApprovalCard";
+import { ApprovalStack } from "@/components/chat/ApprovalStack";
 import { RunDetailDialog, RUN_BADGE_VARIANT, runDuration } from "@/components/activity/RunDetailDialog";
 
 const KIND_ICON: Record<string, LucideIcon> = {
@@ -69,8 +69,8 @@ function RunsTab() {
           description="Cuando lances un agente desde la página Agentes o el chat, sus ejecuciones aparecerán aquí."
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
+          <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-2.5 font-medium">Estado</th>
@@ -147,11 +147,7 @@ function ApprovalsTab() {
             No hay acciones esperando tu autorización.
           </div>
         ) : (
-          <div className="space-y-2">
-            {(pending.data ?? []).map((a) => (
-              <ApprovalCard key={a.id} approval={a} />
-            ))}
-          </div>
+          <ApprovalStack approvals={pending.data ?? []} />
         )}
       </section>
 

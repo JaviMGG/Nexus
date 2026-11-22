@@ -19,7 +19,7 @@ const RISK_VARIANT: Record<Risk, "outline" | "warning" | "destructive"> = {
   destructive: "destructive",
 };
 
-export function ApprovalCard({ approval, className }: { approval: Approval; className?: string }) {
+export function ApprovalCard({ approval, className, compact }: { approval: Approval; className?: string; compact?: boolean }) {
   const qc = useQueryClient();
 
   const decide = useMutation({
@@ -73,12 +73,12 @@ export function ApprovalCard({ approval, className }: { approval: Approval; clas
           </div>
         )}
       </div>
-      {pending && (
+      {pending && !compact && (
         <p className="mt-1 text-xs text-muted-foreground">
           Un agente solicita autorización para ejecutar esta acción.
         </p>
       )}
-      <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-muted p-2 font-mono text-[11px] leading-relaxed">
+      <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-muted p-2 font-mono text-[11px] leading-relaxed select-text">
         {JSON.stringify(approval.args, null, 2)}
       </pre>
     </div>

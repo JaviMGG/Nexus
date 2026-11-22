@@ -456,6 +456,13 @@ body {
   background: color-mix(in srgb, var(--primary) 30%, transparent);
 }
 
+/* El texto de mensajes y contenido es seleccionable incluso en la app
+   nativa (WebKitGTK puede heredar user-select:none del chrome de Tauri). */
+.select-text, .select-text *, .markdown-body, .markdown-body * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted-foreground) 25%, transparent); border-radius: 8px; }

@@ -627,9 +627,21 @@ async fn child_runs_do_not_emit_message_deltas() {
         .await
         .unwrap();
     let child_id = children[0].id.clone();
+    assert_eq!(
+        children[0].conversation_id.as_deref(),
+        Some(conv.id.as_str()),
+        "los hijos heredan la conversación del padre"
+    );
     while let Ok(ev) = rx.try_recv() {
-        if let AppEvent::MessageDelta { run_id, .. } = ev {
-            assert_ne!(run_id, child_id, "los hijos no deben emitir deltas");
+        if let AppEvent::MessageDelta { ref run_id, .. } = ev {
+            assert_ne!(run_id, &child_id, "los hijos no deben emitir deltas");
+        }
+        if let AppEvent::MessageCreated { ref message } = ev {
+            assert_ne!(
+                message.run_id.as_deref(),
+                Some(child_id.as_str()),
+                "los hijos no publican mensajes en el chat"
+            );
         }
     }
 }

@@ -6,8 +6,10 @@ import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import {
   ArrowUp,
+  Check,
   ChevronDown,
   ChevronRight,
+  Copy,
   Info,
   Loader2,
   MessageSquarePlus,
@@ -34,7 +36,7 @@ import type {
 import { AGENT_LABEL, cn, formatDateTime, relativeTime } from "@/lib/utils";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useAiStatus } from "@/components/layout/AiStatusPill";
-import { ApprovalCard } from "@/components/chat/ApprovalCard";
+import { ApprovalStack } from "@/components/chat/ApprovalStack";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -53,6 +55,32 @@ const SUGGESTIONS = [
 function agentLabel(id: string | null | undefined): string {
   if (!id) return "NEXUS";
   return AGENT_LABEL[id] ?? id;
+}
+
+function CopyButton({ text, className }: { text: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          toast.error("No se pudo copiar al portapapeles");
+        }
+      }}
+      className={cn(
+        "rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100 cursor-pointer",
+        copied && "opacity-100 text-success",
+        className,
+      )}
+      aria-label="Copiar mensaje"
+      title="Copiar mensaje"
+    >
+      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  );
 }
 
 function ToolMessage({ message }: { message: ChatMessage }) {
@@ -395,22 +423,24 @@ export function ChatPage() {
                 )}
                 {messageList.map((m) =>
                   m.role === "user" ? (
-                    <div key={m.id} className="flex justify-end animate-fade-in">
-                      <div className="max-w-[80%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm text-primary-foreground shadow-sm">
+                    <div key={m.id} className="group flex items-end justify-end gap-1 animate-fade-in">
+                      <CopyButton text={m.content} className="mb-1 shrink-0" />
+                      <div className="max-w-[80%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm text-primary-foreground shadow-sm select-text cursor-text">
                         <p className="whitespace-pre-wrap">{m.content}</p>
                         <p className="mt-1 text-right text-[10px] opacity-70">{formatDateTime(m.created_at)}</p>
                       </div>
                     </div>
                   ) : m.role === "assistant" ? (
-                    <div key={m.id} className="flex justify-start animate-fade-in">
+                    <div key={m.id} className="group flex justify-start animate-fade-in">
                       <div className="max-w-[85%]">
                         <p className="mb-1 flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground">
                           <Sparkles className="h-3 w-3 text-primary" />
                           {agentLabel(m.agent_id)}
                           <span>·</span>
                           {formatDateTime(m.created_at)}
+                          <CopyButton text={m.content} />
                         </p>
-                        <div className="rounded-2xl rounded-bl-md border border-border bg-card px-4 py-2.5 shadow-sm">
+                        <div className="rounded-2xl rounded-bl-md border border-border bg-card px-4 py-2.5 shadow-sm select-text cursor-text">
                           <div className="markdown-body">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                           </div>
@@ -428,7 +458,7 @@ export function ChatPage() {
                         <Sparkles className="h-3 w-3 text-primary" />
                         {agentLabel(stream.streamingAgentId)}
                       </p>
-                      <div className="rounded-2xl rounded-bl-md border border-border bg-card px-4 py-2.5 shadow-sm">
+                      <div className="rounded-2xl rounded-bl-md border border-border bg-card px-4 py-2.5 shadow-sm select-text cursor-text">
                         <div className="markdown-body">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>{stream.streamingText}</ReactMarkdown>
                         </div>
@@ -437,9 +467,7 @@ export function ChatPage() {
                     </div>
                   </div>
                 )}
-                {stream.approvals.map((a) => (
-                  <ApprovalCard key={a.id} approval={a} />
-                ))}
+                {stream.approvals.length > 0 && <ApprovalStack approvals={stream.approvals} />}
               </>
             )}
           </div>

@@ -9,6 +9,7 @@ nexus-db.workspace = true
 nexus-services.workspace = true
 nexus-ai.workspace = true
 nexus-agents.workspace = true
+nexus-tools.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 serde.workspace = true
@@ -21,4 +22,3 @@ tracing.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
-nexus-tools.workspace = true

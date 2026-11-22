@@ -19,7 +19,8 @@ pub struct AgentRegistry {
 const COMMON_RULES: &str = "\
 Reglas comunes:
 - Usa SIEMPRE las herramientas disponibles para obtener o modificar datos reales; nunca inventes tareas, notas, proyectos ni resultados.
-- Además de tareas/proyectos/notas/calendario, el usuario tiene herramientas propias: Canvas (pizarras), Bases de datos personalizadas y Comidas (recetas, menús, despensa, compra). Puedes CONSULTARLAS con sus herramientas de lectura; no tienes escritura sobre ellas (esa IA vive en cada módulo y propone cambios que el usuario confirma).
+- Además de tareas/proyectos/notas/calendario, el usuario tiene herramientas propias: Canvas (pizarras), Bases de datos personalizadas, Comidas (recetas, menús, despensa, compra) y Automatizaciones. Puedes consultarlas con sus herramientas de lectura; si tienes herramientas de escritura de ese módulo úsalas solo cuando el usuario lo pida, leyendo antes el estado real (get/list) para usar ids correctos.
+- Crear o activar automatizaciones pide SIEMPRE autorización al usuario: explica antes qué hará y cuándo se disparará.
 - Si una herramienta falla o no está disponible, dilo claramente y trabaja con lo que tengas.
 - Las fechas van en formato YYYY-MM-DD.
 - Responde siempre en español, de forma concisa y profesional.
@@ -49,6 +50,8 @@ impl AgentRegistry {
             "meals.week",
             "meals.pantry",
             "meals.shopping",
+            "automations.list",
+            "automations.get",
         ];
         let mut orchestrator_tools: Vec<String> = read_only.iter().map(|s| s.to_string()).collect();
         orchestrator_tools.push("agents.delegate".into());
@@ -72,7 +75,7 @@ impl AgentRegistry {
                      - project_manager: gestión de proyectos y su seguimiento.\n\
                      - knowledge: base de conocimiento y notas.\n\
                      - researcher: investigación (web si está configurada, si no solo conocimiento interno).\n\
-                     - executor: ejecución directa de cambios (crear, actualizar, eliminar, procesar inbox).\n\
+                     - executor: ejecución directa de cambios (crear, actualizar, eliminar, procesar inbox; también escribir en canvases, bases de datos y comidas, y crear automatizaciones con autorización del usuario).\n\
                      NUNCA hagas mutaciones directas: no tienes herramientas de escritura; delega siempre.\n\
                      No delegues en ti mismo ni encadenes delegaciones innecesarias; una delegación bien definida por subobjetivo.\n\
                      Al recibir el resultado de un hijo, intégralo y responde al usuario con un resumen claro.\n\n{COMMON_RULES}"
@@ -118,7 +121,7 @@ impl AgentRegistry {
                     id: "knowledge".into(),
                     name: "Conocimiento".into(),
                     description: "Curador de la base de conocimiento: busca, resume y organiza notas.".into(),
-                    tools: ["notes.list", "notes.search", "notes.get", "notes.create", "notes.update", "tasks.list", "tasks.get", "projects.list", "projects.get", "events.list", "databases.list", "databases.get", "databases.records", "canvas.list", "canvas.get", "meals.recipes", "meals.recipe_get"]
+                    tools: ["notes.list", "notes.search", "notes.get", "notes.create", "notes.update", "tasks.list", "tasks.get", "projects.list", "projects.get", "events.list", "databases.list", "databases.get", "databases.records", "canvas.list", "canvas.get", "canvas.create", "canvas.add_card", "canvas.save_document", "meals.recipes", "meals.recipe_get"]
                         .iter().map(|s| s.to_string()).collect(),
                     max_iterations: 8,
                 },
@@ -128,6 +131,7 @@ impl AgentRegistry {
                      Sintetiza la información en notas bien estructuradas (kind adecuado: note, idea, document o link), \
                      con etiquetas útiles y vínculo al proyecto cuando aplique.\n\
                      Actualiza notas existentes en lugar de duplicarlas. Nunca elimines notas.\n\
+                     Puedes crear canvases y organizar conocimiento visualmente (canvas.create, canvas.add_card); lee canvas.get antes de save_document porque reemplaza el documento completo.\n\
                      Si no hay información sobre el tema, dilo claramente y ofrece crear una nota inicial.\n\n{COMMON_RULES}"
                 ),
             ),
@@ -153,8 +157,8 @@ impl AgentRegistry {
                 AgentDef {
                     id: "executor".into(),
                     name: "Ejecutor".into(),
-                    description: "Ejecuta cambios concretos: tareas, proyectos, notas e inbox.".into(),
-                    tools: ["tasks.list", "tasks.get", "tasks.create", "tasks.update", "tasks.delete", "projects.create", "projects.update", "projects.list", "projects.get", "notes.create", "notes.update", "notes.list", "notes.get", "notes.delete", "inbox.list", "inbox.process", "dashboard.summary", "events.list", "events.create", "events.update", "events.delete", "canvas.list", "canvas.get", "databases.list", "databases.get", "databases.records", "meals.recipes", "meals.recipe_get", "meals.week", "meals.pantry", "meals.shopping"]
+                    description: "Ejecuta cambios concretos: tareas, proyectos, notas, inbox, canvases, bases de datos, comidas y automatizaciones.".into(),
+                    tools: ["tasks.list", "tasks.get", "tasks.create", "tasks.update", "tasks.delete", "projects.create", "projects.update", "projects.list", "projects.get", "notes.create", "notes.update", "notes.list", "notes.get", "notes.delete", "inbox.list", "inbox.process", "dashboard.summary", "events.list", "events.create", "events.update", "events.delete", "canvas.list", "canvas.get", "canvas.create", "canvas.add_card", "canvas.save_document", "databases.list", "databases.get", "databases.records", "databases.records.create", "databases.records.update", "meals.recipes", "meals.recipe_get", "meals.recipe_create", "meals.week", "meals.pantry", "meals.pantry_adjust", "meals.shopping", "meals.shopping_generate", "meals.shopping_add_item", "automations.list", "automations.get", "automations.create", "automations.set_enabled"]
                         .iter().map(|s| s.to_string()).collect(),
                     max_iterations: 8,
                 },
@@ -163,6 +167,11 @@ impl AgentRegistry {
                      Antes de modificar, lee el estado real (get/list) para usar ids correctos; nunca supongas ids.\n\
                      Las eliminaciones son destructivas y pueden pedir confirmación al usuario: explica qué vas a borrar y por qué.\n\
                      Procesa el inbox convirtiéndolo en tareas o notas bien formadas.\n\
+                     En bases de datos personalizadas, consulta databases.get para conocer los ids y tipos de campo antes de crear o actualizar registros.\n\
+                     En canvases, lee canvas.get antes de save_document (reemplaza el documento completo); para añadir una tarjeta usa canvas.add_card.\n\
+                     En comidas, usa ingredientes con cantidades y unidades reales; nunca estimes datos nutricionales.\n\
+                     Puedes crear automatizaciones (automations.create) y activarlas (automations.set_enabled): SIEMPRE piden autorización del usuario; \
+                     créalas desactivadas por defecto y explica qué harán y cuándo se dispararán antes de activarlas.\n\
                      Después de cada cambio, verifica el resultado y resume exactamente qué quedó hecho.\n\n{COMMON_RULES}"
                 ),
             ),
@@ -250,19 +259,58 @@ mod tests {
         ] {
             assert!(orch.def.tools.contains(&read.to_string()));
         }
-        // Los módulos nuevos son de solo lectura para los agentes.
+        // El orquestador sigue siendo de solo lectura (delega las mutaciones).
         for forbidden in [
             "databases.records.create",
-            "meals.plan.add",
+            "canvas.create",
             "canvas.save_document",
+            "meals.recipe_create",
+            "automations.create",
+            "automations.set_enabled",
         ] {
             assert!(!orch.def.tools.contains(&forbidden.to_string()));
         }
+        assert!(orch.def.tools.contains(&"automations.list".to_string()));
+        assert!(orch.def.tools.contains(&"automations.get".to_string()));
 
         let executor = registry.get("executor").unwrap();
         assert!(executor.def.tools.contains(&"tasks.delete".to_string()));
         assert!(executor.def.tools.contains(&"inbox.process".to_string()));
         assert!(!executor.def.tools.contains(&"agents.delegate".to_string()));
+        for write in [
+            "databases.records.create",
+            "databases.records.update",
+            "canvas.create",
+            "canvas.add_card",
+            "canvas.save_document",
+            "meals.recipe_create",
+            "meals.shopping_generate",
+            "meals.shopping_add_item",
+            "meals.pantry_adjust",
+            "automations.create",
+            "automations.set_enabled",
+        ] {
+            assert!(
+                executor.def.tools.contains(&write.to_string()),
+                "executor debe tener {write}"
+            );
+        }
+        // Escritura fuera del alcance del ejecutor: administración y borrados sensibles.
+        for forbidden in [
+            "automations.delete",
+            "automations.run",
+            "databases.records.delete",
+            "canvas.delete",
+            "meals.recipe_delete",
+        ] {
+            assert!(!executor.def.tools.contains(&forbidden.to_string()));
+        }
+
+        let knowledge = registry.get("knowledge").unwrap();
+        assert!(knowledge.def.tools.contains(&"canvas.create".to_string()));
+        assert!(knowledge.def.tools.contains(&"canvas.add_card".to_string()));
+        assert!(!knowledge.def.tools.contains(&"databases.records.create".to_string()));
+        assert!(!knowledge.def.tools.contains(&"automations.create".to_string()));
 
         let researcher = registry.get("researcher").unwrap();
         assert!(researcher.def.tools.contains(&"web.search".to_string()));

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invoke } from "@/lib/api";
 import { subscribeEvents } from "@/lib/events";
 import type { AgentRun, Approval, Id, RunStatus, ToolCall } from "@/lib/types";
 
@@ -38,6 +39,40 @@ export function useChatStream(conversationId: Id | null): ChatStreamState {
     setActiveRunId(null);
     setToolCalls([]);
     setApprovals([]);
+    if (conversationId == null) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const runs = await invoke<AgentRun[]>("agents.runs", { limit: 100 });
+        if (cancelled || convRef.current !== conversationId) return;
+        const mine = runs.filter((r) => r.conversation_id === conversationId);
+        for (const r of mine) runsRef.current.set(r.id, r);
+        const active = mine.filter(isActiveRun);
+        const root = active.find((r) => r.parent_run_id == null) ?? active[0] ?? null;
+        if (root) setActiveRunId(root.id);
+        if (active.length > 0) {
+          const details = await Promise.all(
+            active.map((r) => invoke<{ approvals: Approval[]; tool_calls: ToolCall[] }>("agents.run_detail", { id: r.id }).catch(() => null)),
+          );
+          if (cancelled || convRef.current !== conversationId) return;
+          const pending = details.flatMap((d) => d?.approvals ?? []).filter((a) => a.status === "pending");
+          setApprovals((prev) => {
+            const seen = new Set(prev.map((a) => a.id));
+            return [...prev, ...pending.filter((a) => !seen.has(a.id))];
+          });
+          if (root) {
+            const calls = details.flatMap((d) => d?.tool_calls ?? []).filter((c) => c.status === "pending" || c.status === "pending_approval");
+            setToolCalls((prev) => {
+              const seen = new Set(prev.map((c) => c.id));
+              return [...prev, ...calls.filter((c) => !seen.has(c.id))];
+            });
+          }
+        }
+      } catch {
+        // sin conexión o backend antiguo: el stream en vivo sigue funcionando
+      }
+    })();
+    return () => { cancelled = true; };
   }, [conversationId]);
 
   useEffect(() => {
@@ -52,12 +87,29 @@ export function useChatStream(conversationId: Id | null): ChatStreamState {
             run.conversation_id != null && run.conversation_id === convRef.current;
           if (!belongs) break;
           if (isActiveRun(run)) {
-            setActiveRunId(run.id);
+            // El run raíz manda; un hijo no debe sustituirlo en la barra de estado.
+            setActiveRunId((prev) => {
+              if (prev == null) return run.id;
+              const current = runsRef.current.get(prev);
+              if (current && current.parent_run_id == null && run.parent_run_id != null) return prev;
+              return run.id;
+            });
           } else {
-            setActiveRunId((prev) => (prev === run.id ? null : prev));
             if (event.type === "run_finished") {
-              setToolCalls((prev) => (prev.some((c) => c.run_id === run.id) ? [] : prev));
+              setToolCalls((prev) => prev.filter((c) => c.run_id !== run.id));
               setApprovals((prev) => prev.filter((a) => a.run_id !== run.id));
+              setActiveRunId((prev) => {
+                if (prev === run.id) return null;
+                const current = prev ? runsRef.current.get(prev) : null;
+                // Si el activo era un hijo de este run, vuelve al padre si sigue vivo.
+                if (current && current.parent_run_id === run.id) {
+                  const parent = runsRef.current.get(run.id);
+                  return parent && isActiveRun(parent) ? parent.id : null;
+                }
+                return prev;
+              });
+            } else {
+              setActiveRunId((prev) => (prev === run.id ? null : prev));
             }
           }
           break;

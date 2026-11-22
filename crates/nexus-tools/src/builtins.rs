@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 
 use crate::{Tool, ToolContext, WebSearchProvider};
 
-fn req_str(args: &Value, key: &str) -> Result<String> {
+pub(crate) fn req_str(args: &Value, key: &str) -> Result<String> {
     args.get(key)
         .and_then(Value::as_str)
         .map(String::from)
@@ -23,20 +23,20 @@ fn req_str(args: &Value, key: &str) -> Result<String> {
         })
 }
 
-fn dto<T: DeserializeOwned>(args: Value) -> Result<T> {
+pub(crate) fn dto<T: DeserializeOwned>(args: Value) -> Result<T> {
     serde_json::from_value(args)
         .map_err(|e| NexusError::validation(format!("argumentos inválidos: {e}")))
 }
 
-fn val<T: Serialize>(v: T) -> Result<Value> {
+pub(crate) fn val<T: Serialize>(v: T) -> Result<Value> {
     serde_json::to_value(v).map_err(|e| NexusError::Internal(e.to_string()))
 }
 
-fn schema(props: Value, required: &[&str]) -> Value {
+pub(crate) fn schema(props: Value, required: &[&str]) -> Value {
     json!({ "type": "object", "properties": props, "required": required })
 }
 
-fn enum_prop(values: &[&str]) -> Value {
+pub(crate) fn enum_prop(values: &[&str]) -> Value {
     json!({ "type": "string", "enum": values })
 }
 
@@ -63,7 +63,35 @@ macro_rules! define_tool {
             }
         }
     };
+    ($ty:ident, $name:literal, $risk:expr, confirm, $desc:literal, $params:expr, |$args:ident, $ctx:ident| $body:block) => {
+        struct $ty;
+
+        #[async_trait::async_trait]
+        impl Tool for $ty {
+            fn spec(&self) -> nexus_ai::ToolSpec {
+                nexus_ai::ToolSpec {
+                    name: $name.to_string(),
+                    description: $desc.to_string(),
+                    parameters: $params,
+                }
+            }
+
+            fn risk(&self) -> Risk {
+                $risk
+            }
+
+            fn always_confirm(&self) -> bool {
+                true
+            }
+
+            async fn execute(&self, $args: Value, $ctx: &ToolContext) -> Result<Value> {
+                $body
+            }
+        }
+    };
 }
+
+pub(crate) use define_tool;
 
 define_tool!(TasksList, "tasks.list", Risk::Read,
     "Lista tareas reales del usuario con filtros opcionales (estado, proyecto, prioridad, búsqueda, etiqueta, fecha límite).",
@@ -668,6 +696,7 @@ mod tests {
             services: Services::new(Db::connect_memory().await.unwrap()),
             run_id: "run-test".into(),
             agent_id: "executor".into(),
+            automation: None,
         }
     }
 
@@ -789,7 +818,7 @@ mod tests {
     fn registry_has_all_tools_with_schemas() {
         let registry = ToolRegistry::with_defaults();
         let names = registry.names();
-        assert_eq!(names.len(), 33);
+        assert_eq!(names.len(), 33 + 4 + 2 + 3 + 4);
         for name in &names {
             let tool = registry.get(name).unwrap();
             let spec = tool.spec();

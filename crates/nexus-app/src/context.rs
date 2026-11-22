@@ -49,6 +49,7 @@ impl AppContext {
             events.clone(),
         );
         automation.recover().await?;
+        engine.set_automation(automation.clone());
         automation.start();
         Ok(Self {
             services,

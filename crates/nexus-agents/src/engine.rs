@@ -36,6 +36,7 @@ pub struct ExecutionEngine {
     events: broadcast::Sender<AppEvent>,
     runs: Mutex<HashMap<String, RunHandle>>,
     approvals: Mutex<HashMap<String, Arc<Notify>>>,
+    automation: std::sync::OnceLock<Arc<dyn nexus_tools::AutomationOps>>,
 }
 
 impl ExecutionEngine {
@@ -54,7 +55,14 @@ impl ExecutionEngine {
             events,
             runs: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
+            automation: std::sync::OnceLock::new(),
         })
+    }
+
+    /// Inyecta el Automation Center tras construirlo (rompe el ciclo
+    /// engine → manager → engine). Solo tiene efecto la primera vez.
+    pub fn set_automation(&self, automation: Arc<dyn nexus_tools::AutomationOps>) {
+        let _ = self.automation.set(automation);
     }
 
     /// Crea el run en DB, emite RunStarted y lanza el bucle en segundo plano.
@@ -338,11 +346,14 @@ impl ExecutionEngine {
             }
             let (tx, mut rx) = mpsc::unbounded_channel::<String>();
             let conversation_id = run.conversation_id.clone();
+            let is_root = run.parent_run_id.is_none();
             let run_id = run.id.clone();
             let events = self.events.clone();
             let forward = tokio::spawn(async move {
                 while let Some(delta) = rx.recv().await {
-                    if let Some(cid) = &conversation_id {
+                    // Solo el run raíz streamea texto al chat; los hijos
+                    // delegados informan vía sus tool calls.
+                    if let (Some(cid), true) = (&conversation_id, is_root) {
                         let _ = events.send(AppEvent::MessageDelta {
                             conversation_id: cid.clone(),
                             run_id: run_id.clone(),
@@ -457,7 +468,7 @@ impl ExecutionEngine {
             .await
             .unwrap_or_default()
             .permissions;
-        if nexus_tools::needs_approval(tool.risk(), &perms) {
+        if tool.always_confirm() || nexus_tools::needs_approval(tool.risk(), &perms) {
             match self
                 .wait_for_approval(run, &mut row, tool.risk(), token)
                 .await?
@@ -564,6 +575,7 @@ impl ExecutionEngine {
             services: self.services.clone(),
             run_id: run.id.clone(),
             agent_id: run.agent_id.clone(),
+            automation: self.automation.get().cloned(),
         };
         let start = std::time::Instant::now();
         let exec = tool.execute(call.arguments.clone(), &ctx);
@@ -671,6 +683,7 @@ impl ExecutionEngine {
                 goal.to_string(),
                 target.to_string(),
                 run.id.clone(),
+                run.conversation_id.clone(),
                 depth + 1,
                 token,
             )
@@ -727,11 +740,14 @@ impl ExecutionEngine {
 
     /// Crea y EJECUTA el run hijo de forma síncrona (await), con su propio
     /// token enlazado al del padre. Emite RunStarted/RunFinished normales.
+    /// Hereda la conversación del padre para que el chat vea sus herramientas
+    /// y aprobaciones en línea.
     async fn execute_child(
         &self,
         goal: String,
         agent_id: String,
         parent_run_id: String,
+        conversation_id: Option<String>,
         depth: i64,
         parent_token: &CancellationToken,
     ) -> Result<AgentRun> {
@@ -739,7 +755,7 @@ impl ExecutionEngine {
         let now = now_str();
         let mut child = AgentRun {
             id: new_id(),
-            conversation_id: None,
+            conversation_id,
             agent_id,
             parent_run_id: Some(parent_run_id),
             goal,
@@ -834,19 +850,23 @@ impl ExecutionEngine {
     }
 
     async fn complete_with_message(&self, run: &mut AgentRun, content: String) -> Result<()> {
+        // Los runs hijos delegados viven en la conversación del padre pero no
+        // publican mensajes: su resultado vuelve al padre vía agents.delegate.
         if let Some(cid) = &run.conversation_id {
-            let message = repos::chat::add_message(
-                &self.services.db,
-                cid,
-                MessageRole::Assistant,
-                &content,
-                Some(&run.agent_id),
-                Some(&run.id),
-                None,
-                new_id(),
-            )
-            .await?;
-            let _ = self.events.send(AppEvent::MessageCreated { message });
+            if run.parent_run_id.is_none() {
+                let message = repos::chat::add_message(
+                    &self.services.db,
+                    cid,
+                    MessageRole::Assistant,
+                    &content,
+                    Some(&run.agent_id),
+                    Some(&run.id),
+                    None,
+                    new_id(),
+                )
+                .await?;
+                let _ = self.events.send(AppEvent::MessageCreated { message });
+            }
         }
         self.finish(run, RunStatus::Completed, Some(content), None)
             .await
