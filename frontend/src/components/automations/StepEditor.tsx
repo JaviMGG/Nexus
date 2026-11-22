@@ -1,14 +1,19 @@
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@/lib/api";
 import type {
   ActionSpec,
   AgentDef,
+  Automation,
   CompareOp,
   Condition,
   FlowStep,
   MetricSpec,
+  Note,
+  Project,
+  Task,
 } from "@/lib/types";
-import { AGENT_LABEL } from "@/lib/utils";
+import { AGENT_LABEL, cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -100,7 +105,152 @@ function LeafConditionEditor({
   );
 }
 
-const PARAM_FIELDS: Record<string, { key: string; label: string; kind?: "textarea" | "number"; placeholder?: string }[]> = {
+type RefKind = "task" | "project" | "note" | "automation";
+
+const REF_TOKEN: Record<RefKind, { id: string; label: string } | null> = {
+  task: { id: "task", label: "La tarea del evento que disparó la automatización" },
+  project: { id: "project", label: "El proyecto del evento que disparó la automatización" },
+  note: { id: "note", label: "La nota del evento que disparó la automatización" },
+  automation: null,
+};
+
+interface RefOption {
+  id: string;
+  title: string;
+}
+
+function useRefOptions(kind: RefKind, enabled: boolean): { options: RefOption[]; isLoading: boolean } {
+  const tasks = useQuery({
+    queryKey: ["tasks", {}],
+    queryFn: () => invoke<Task[]>("tasks.list", { filter: {} }),
+    enabled: enabled && kind === "task",
+    staleTime: 15000,
+  });
+  const projects = useQuery({
+    queryKey: ["projects", { include_archived: true }],
+    queryFn: () => invoke<Project[]>("projects.list", { include_archived: true }),
+    enabled: enabled && kind === "project",
+    staleTime: 15000,
+  });
+  const notes = useQuery({
+    queryKey: ["notes", {}],
+    queryFn: () => invoke<Note[]>("notes.list", { filter: {} }),
+    enabled: enabled && kind === "note",
+    staleTime: 15000,
+  });
+  const automations = useQuery({
+    queryKey: ["automations"],
+    queryFn: () => invoke<Automation[]>("automations.list"),
+    enabled: enabled && kind === "automation",
+    staleTime: 15000,
+  });
+  switch (kind) {
+    case "task":
+      return { options: (tasks.data ?? []).map((t) => ({ id: t.id, title: t.title })), isLoading: tasks.isLoading };
+    case "project":
+      return { options: (projects.data ?? []).map((p) => ({ id: p.id, title: p.name })), isLoading: projects.isLoading };
+    case "note":
+      return { options: (notes.data ?? []).map((n) => ({ id: n.id, title: n.title })), isLoading: notes.isLoading };
+    case "automation":
+      return { options: (automations.data ?? []).map((a) => ({ id: a.id, title: a.name })), isLoading: automations.isLoading };
+  }
+}
+
+function RefInput({
+  kind,
+  value,
+  placeholder,
+  onChange,
+}: {
+  kind: RefKind;
+  value: string;
+  placeholder?: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const { options, isLoading } = useRefOptions(kind, open);
+  const q = value.trim().toLowerCase();
+  const suggestions = useMemo(() => {
+    const matches = options
+      .filter((o) => !q || o.title.toLowerCase().includes(q) || o.id.toLowerCase().includes(q))
+      .slice(0, 8);
+    const token = REF_TOKEN[kind];
+    if (token && (!q || token.id.includes(q) || token.label.toLowerCase().includes(q))) {
+      return [{ id: token.id, title: token.label }, ...matches];
+    }
+    return matches;
+  }, [options, q, kind]);
+  const selected = options.find((o) => o.id === value);
+
+  const pick = (id: string) => {
+    onChange(id);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative">
+      <Input
+        className="h-8 text-xs"
+        value={value}
+        placeholder={placeholder ?? "Escribe para buscar por nombre o id…"}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+          setActive(0);
+        }}
+        onFocus={() => { setOpen(true); setActive(0); }}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => {
+          if (!open || suggestions.length === 0) return;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setActive((i) => (i + 1) % suggestions.length);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActive((i) => (i - 1 + suggestions.length) % suggestions.length);
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            pick(suggestions[Math.min(active, suggestions.length - 1)].id);
+          } else if (e.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+      />
+      {open && (suggestions.length > 0 || isLoading) && (
+        <ul className="absolute left-0 right-0 top-full z-30 mt-1 max-h-44 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-lg">
+          {isLoading && suggestions.length === 0 && (
+            <li className="px-2 py-1.5 text-[11px] text-muted-foreground">Cargando…</li>
+          )}
+          {suggestions.map((s, i) => (
+            <li key={s.id}>
+              <button
+                type="button"
+                className={cn(
+                  "flex w-full flex-col px-2 py-1.5 text-left cursor-pointer",
+                  i === active ? "bg-accent" : "hover:bg-accent/60",
+                )}
+                onMouseDown={(e) => e.preventDefault()}
+                onMouseEnter={() => setActive(i)}
+                onClick={() => pick(s.id)}
+              >
+                <span className="truncate text-xs">{REF_TOKEN[kind]?.id === s.id ? `«${s.id}» — ${s.title}` : s.title}</span>
+                {REF_TOKEN[kind]?.id !== s.id && (
+                  <span className="truncate font-mono text-[10px] text-muted-foreground">{s.id}</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!open && selected && (
+        <p className="truncate text-[10px] text-muted-foreground">→ {selected.title}</p>
+      )}
+    </div>
+  );
+}
+
+const PARAM_FIELDS: Record<string, { key: string; label: string; kind?: "textarea" | "number"; ref?: RefKind; placeholder?: string }[]> = {
   "tasks.create": [
     { key: "title", label: "Título", placeholder: "admite {{title}}" },
     { key: "description", label: "Descripción", kind: "textarea" },
@@ -110,29 +260,29 @@ const PARAM_FIELDS: Record<string, { key: string; label: string; kind?: "textare
   ],
   "tasks.create_subtask": [
     { key: "title", label: "Título" },
-    { key: "task_id", label: "Tarea padre (id o \"task\")" },
+    { key: "task_id", label: "Tarea padre (id o \"task\")", ref: "task" },
   ],
   "projects.add_task": [
     { key: "title", label: "Título" },
-    { key: "project_id", label: "Proyecto (id o \"project\")" },
+    { key: "project_id", label: "Proyecto (id o \"project\")", ref: "project" },
   ],
   "tasks.update": [
-    { key: "task_id", label: "Tarea (id o \"task\")" },
+    { key: "task_id", label: "Tarea (id o \"task\")", ref: "task" },
     { key: "title", label: "Nuevo título" },
     { key: "description", label: "Nueva descripción", kind: "textarea" },
   ],
-  "tasks.complete": [{ key: "task_id", label: "Tarea (id o \"task\")" }],
-  "tasks.delete": [{ key: "task_id", label: "Tarea (id o \"task\")" }],
+  "tasks.complete": [{ key: "task_id", label: "Tarea (id o \"task\")", ref: "task" }],
+  "tasks.delete": [{ key: "task_id", label: "Tarea (id o \"task\")", ref: "task" }],
   "tasks.set_priority": [
-    { key: "task_id", label: "Tarea (id o \"task\")" },
+    { key: "task_id", label: "Tarea (id o \"task\")", ref: "task" },
     { key: "priority", label: "Prioridad (low/medium/high/urgent)" },
   ],
   "tasks.add_tags": [
-    { key: "task_id", label: "Tarea (id o \"task\")" },
+    { key: "task_id", label: "Tarea (id o \"task\")", ref: "task" },
     { key: "add_tags", label: "Etiquetas (JSON array)" },
   ],
   "tasks.reorder": [
-    { key: "task_id", label: "Tarea (id o \"task\")" },
+    { key: "task_id", label: "Tarea (id o \"task\")", ref: "task" },
     { key: "status", label: "Estado (todo/in_progress/done/cancelled)" },
     { key: "position", label: "Posición", kind: "number" },
   ],
@@ -142,11 +292,11 @@ const PARAM_FIELDS: Record<string, { key: string; label: string; kind?: "textare
     { key: "goal", label: "Objetivo" },
   ],
   "projects.update_description": [
-    { key: "project_id", label: "Proyecto (id o \"project\")" },
+    { key: "project_id", label: "Proyecto (id o \"project\")", ref: "project" },
     { key: "description", label: "Descripción", kind: "textarea" },
   ],
   "projects.update_status": [
-    { key: "project_id", label: "Proyecto (id o \"project\")" },
+    { key: "project_id", label: "Proyecto (id o \"project\")", ref: "project" },
     { key: "status", label: "Estado (active/paused/completed/archived)" },
   ],
   "notes.create": [
@@ -162,28 +312,28 @@ const PARAM_FIELDS: Record<string, { key: string; label: string; kind?: "textare
   ],
   "system.report": [{ key: "title", label: "Título del informe" }],
   "notes.update": [
-    { key: "note_id", label: "Nota (id o \"note\")" },
+    { key: "note_id", label: "Nota (id o \"note\")", ref: "note" },
     { key: "title", label: "Título" },
     { key: "content", label: "Contenido", kind: "textarea" },
   ],
   "notes.append": [
-    { key: "note_id", label: "Nota (id o \"note\")" },
+    { key: "note_id", label: "Nota (id o \"note\")", ref: "note" },
     { key: "append_content", label: "Texto a añadir", kind: "textarea" },
   ],
   "notes.classify": [
-    { key: "note_id", label: "Nota (id o \"note\")" },
+    { key: "note_id", label: "Nota (id o \"note\")", ref: "note" },
     { key: "kind", label: "Tipo (note/idea/document/link)" },
   ],
   "notes.add_tags": [
-    { key: "note_id", label: "Nota (id o \"note\")" },
+    { key: "note_id", label: "Nota (id o \"note\")", ref: "note" },
     { key: "add_tags", label: "Etiquetas (JSON array)" },
   ],
   "notes.link_project": [
-    { key: "note_id", label: "Nota (id o \"note\")" },
-    { key: "project_id", label: "Proyecto (id o \"project\")" },
+    { key: "note_id", label: "Nota (id o \"note\")", ref: "note" },
+    { key: "project_id", label: "Proyecto (id o \"project\")", ref: "project" },
   ],
-  "notes.delete": [{ key: "note_id", label: "Nota (id o \"note\")" }],
-  "system.run_automation": [{ key: "automation_id", label: "Id de la automatización (solo modo local)" }],
+  "notes.delete": [{ key: "note_id", label: "Nota (id o \"note\")", ref: "note" }],
+  "system.run_automation": [{ key: "automation_id", label: "Automatización (solo modo local)", ref: "automation" }],
 };
 
 function ActionParamsEditor({
@@ -220,6 +370,13 @@ function ActionParamsEditor({
               value={valueToStr(params[f.key] ?? "")}
               placeholder={f.placeholder}
               onChange={(e) => set(f.key, e.target.value, f.kind)}
+            />
+          ) : f.ref ? (
+            <RefInput
+              kind={f.ref}
+              value={valueToStr(params[f.key] ?? "")}
+              placeholder={f.placeholder}
+              onChange={(v) => set(f.key, v)}
             />
           ) : (
             <Input
