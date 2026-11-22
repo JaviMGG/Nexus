@@ -19,6 +19,7 @@ pub struct AgentRegistry {
 const COMMON_RULES: &str = "\
 Reglas comunes:
 - Usa SIEMPRE las herramientas disponibles para obtener o modificar datos reales; nunca inventes tareas, notas, proyectos ni resultados.
+- Además de tareas/proyectos/notas/calendario, el usuario tiene herramientas propias: Canvas (pizarras), Bases de datos personalizadas y Comidas (recetas, menús, despensa, compra). Puedes CONSULTARLAS con sus herramientas de lectura; no tienes escritura sobre ellas (esa IA vive en cada módulo y propone cambios que el usuario confirma).
 - Si una herramienta falla o no está disponible, dilo claramente y trabaja con lo que tengas.
 - Las fechas van en formato YYYY-MM-DD.
 - Responde siempre en español, de forma concisa y profesional.
@@ -38,6 +39,16 @@ impl AgentRegistry {
             "events.list",
             "dashboard.summary",
             "web.search",
+            "canvas.list",
+            "canvas.get",
+            "databases.list",
+            "databases.get",
+            "databases.records",
+            "meals.recipes",
+            "meals.recipe_get",
+            "meals.week",
+            "meals.pantry",
+            "meals.shopping",
         ];
         let mut orchestrator_tools: Vec<String> = read_only.iter().map(|s| s.to_string()).collect();
         orchestrator_tools.push("agents.delegate".into());
@@ -53,8 +64,10 @@ impl AgentRegistry {
                 },
                 format!(
                     "Eres el Orquestador de NEXUS, el coordinador del equipo de agentes personales del usuario.\n\
-                     Tu rol: analizar la petición, consultar el estado real (tareas, proyectos, notas, dashboard) con herramientas de lectura \
-                     y delegar el trabajo concreto con agents.delegate en el agente adecuado:\n\
+                     Tu rol: analizar la petición, consultar el estado real con herramientas de lectura \
+                     (tareas, proyectos, notas, calendario, dashboard, y también las herramientas del usuario: \
+                     canvases/pizarras con canvas.*, bases de datos personalizadas con databases.*, \
+                     recetas/menús/despensa/compra con meals.*) y delegar el trabajo concreto con agents.delegate en el agente adecuado:\n\
                      - planner: planificación y desglose de tareas.\n\
                      - project_manager: gestión de proyectos y su seguimiento.\n\
                      - knowledge: base de conocimiento y notas.\n\
@@ -105,7 +118,7 @@ impl AgentRegistry {
                     id: "knowledge".into(),
                     name: "Conocimiento".into(),
                     description: "Curador de la base de conocimiento: busca, resume y organiza notas.".into(),
-                    tools: ["notes.list", "notes.search", "notes.get", "notes.create", "notes.update", "tasks.list", "tasks.get", "projects.list", "projects.get", "events.list"]
+                    tools: ["notes.list", "notes.search", "notes.get", "notes.create", "notes.update", "tasks.list", "tasks.get", "projects.list", "projects.get", "events.list", "databases.list", "databases.get", "databases.records", "canvas.list", "canvas.get", "meals.recipes", "meals.recipe_get"]
                         .iter().map(|s| s.to_string()).collect(),
                     max_iterations: 8,
                 },
@@ -123,7 +136,7 @@ impl AgentRegistry {
                     id: "researcher".into(),
                     name: "Investigador".into(),
                     description: "Investiga con búsqueda web (si está configurada) y la base de conocimiento; guarda hallazgos en notas.".into(),
-                    tools: ["notes.list", "notes.search", "notes.get", "notes.create", "web.search", "tasks.list", "tasks.get"]
+                    tools: ["notes.list", "notes.search", "notes.get", "notes.create", "web.search", "tasks.list", "tasks.get", "databases.list", "databases.records"]
                         .iter().map(|s| s.to_string()).collect(),
                     max_iterations: 8,
                 },
@@ -141,7 +154,7 @@ impl AgentRegistry {
                     id: "executor".into(),
                     name: "Ejecutor".into(),
                     description: "Ejecuta cambios concretos: tareas, proyectos, notas e inbox.".into(),
-                    tools: ["tasks.list", "tasks.get", "tasks.create", "tasks.update", "tasks.delete", "projects.create", "projects.update", "projects.list", "projects.get", "notes.create", "notes.update", "notes.list", "notes.get", "notes.delete", "inbox.list", "inbox.process", "dashboard.summary", "events.list", "events.create", "events.update", "events.delete"]
+                    tools: ["tasks.list", "tasks.get", "tasks.create", "tasks.update", "tasks.delete", "projects.create", "projects.update", "projects.list", "projects.get", "notes.create", "notes.update", "notes.list", "notes.get", "notes.delete", "inbox.list", "inbox.process", "dashboard.summary", "events.list", "events.create", "events.update", "events.delete", "canvas.list", "canvas.get", "databases.list", "databases.get", "databases.records", "meals.recipes", "meals.recipe_get", "meals.week", "meals.pantry", "meals.shopping"]
                         .iter().map(|s| s.to_string()).collect(),
                     max_iterations: 8,
                 },
@@ -227,8 +240,23 @@ mod tests {
             "notes.search",
             "notes.get",
             "dashboard.summary",
+            "canvas.list",
+            "databases.list",
+            "databases.records",
+            "meals.recipes",
+            "meals.week",
+            "meals.pantry",
+            "meals.shopping",
         ] {
             assert!(orch.def.tools.contains(&read.to_string()));
+        }
+        // Los módulos nuevos son de solo lectura para los agentes.
+        for forbidden in [
+            "databases.records.create",
+            "meals.plan.add",
+            "canvas.save_document",
+        ] {
+            assert!(!orch.def.tools.contains(&forbidden.to_string()));
         }
 
         let executor = registry.get("executor").unwrap();

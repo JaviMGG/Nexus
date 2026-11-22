@@ -485,6 +485,139 @@ fn web_search_provider_from_config(
     None
 }
 
+// ---------------------------------------------------------------------------
+// Lectura de las herramientas nuevas (Canvas, Databases, Meals).
+// Solo lectura: la IA de estos módulos propone desde la UI; los agentes
+// pueden consultarlos para responder preguntas transversales.
+// ---------------------------------------------------------------------------
+
+define_tool!(
+    CanvasList,
+    "canvas.list",
+    Risk::Read,
+    "Lista los canvases (pizarras visuales) del usuario con nombre, descripción y nº de elementos.",
+    schema(json!({}), &[]),
+    |args, ctx| {
+        let _ = args;
+        val(ctx.services.canvas.list().await?)
+    }
+);
+
+define_tool!(
+    CanvasGet,
+    "canvas.get",
+    Risk::Read,
+    "Obtiene un canvas completo por id: sus elementos (notas, formas, referencias) y conexiones.",
+    schema(json!({ "id": { "type": "string" } }), &["id"]),
+    |args, ctx| {
+        let id = req_str(&args, "id")?;
+        val(ctx.services.canvas.get(&id).await?)
+    }
+);
+
+define_tool!(DatabasesList, "databases.list", Risk::Read,
+    "Lista las bases de datos personalizadas del usuario (colecciones tipo Airtable) con nombre, icono y nº de registros.",
+    schema(json!({}), &[]),
+    |args, ctx| {
+        let _ = args;
+        val(ctx.services.databases.list().await?)
+    }
+);
+
+define_tool!(DatabasesGet, "databases.get", Risk::Read,
+    "Obtiene el esquema de una base de datos por id: sus campos (nombre, tipo, configuración) y vistas.",
+    schema(json!({ "id": { "type": "string" } }), &["id"]),
+    |args, ctx| {
+        let id = req_str(&args, "id")?;
+        val(ctx.services.databases.get(&id).await?)
+    }
+);
+
+define_tool!(DatabasesRecords, "databases.records", Risk::Read,
+    "Consulta registros reales de una base de datos personalizada. Usa search para buscar texto; limit para acotar (por defecto 50).",
+    schema(json!({
+        "database_id": { "type": "string" },
+        "search": { "type": "string" },
+        "limit": { "type": "integer" }
+    }), &["database_id"]),
+    |args, ctx| {
+        let database_id = req_str(&args, "database_id")?;
+        let mut q: nexus_core::RecordQuery = nexus_core::RecordQuery {
+            search: args.get("search").and_then(Value::as_str).map(str::to_string),
+            limit: Some(args.get("limit").and_then(Value::as_i64).unwrap_or(50).clamp(1, 200)),
+            ..Default::default()
+        };
+        q.offset = Some(0);
+        val(ctx.services.databases.query_records(&database_id, q).await?)
+    }
+);
+
+define_tool!(MealsRecipes, "meals.recipes", Risk::Read,
+    "Lista las recetas del recetario con nombre, ingredientes, raciones, tiempos y dificultad. Filtra por búsqueda, categoría o favoritos.",
+    schema(json!({
+        "search": { "type": "string" },
+        "category": { "type": "string" },
+        "favorites_only": { "type": "boolean" }
+    }), &[]),
+    |args, ctx| {
+        let f = nexus_core::RecipeFilter {
+            search: args.get("search").and_then(Value::as_str).map(str::to_string),
+            category: args.get("category").and_then(Value::as_str).map(str::to_string),
+            favorites_only: args.get("favorites_only").and_then(Value::as_bool),
+            ..Default::default()
+        };
+        val(ctx.services.meals.list_recipes(f).await?)
+    }
+);
+
+define_tool!(MealsRecipeGet, "meals.recipe_get", Risk::Read,
+    "Obtiene una receta completa por id: ingredientes con cantidades, pasos y datos nutricionales si el usuario los introdujo.",
+    schema(json!({ "id": { "type": "string" } }), &["id"]),
+    |args, ctx| {
+        let id = req_str(&args, "id")?;
+        val(ctx.services.meals.get_recipe(&id).await?)
+    }
+);
+
+define_tool!(MealsWeek, "meals.week", Risk::Read,
+    "Consulta el menú semanal de comidas. Pasa cualquier fecha YYYY-MM-DD de la semana deseada (o vacío para la semana actual).",
+    schema(json!({ "date": { "type": "string", "description": "YYYY-MM-DD; vacío = semana actual" } }), &[]),
+    |args, ctx| {
+        let date = args.get("date").and_then(Value::as_str).filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| nexus_core::now().format("%Y-%m-%d").to_string());
+        val(ctx.services.meals.week_plan(&date).await?)
+    }
+);
+
+define_tool!(MealsPantry, "meals.pantry", Risk::Read,
+    "Lista la despensa del usuario: ingredientes disponibles con cantidad, unidad, ubicación y caducidad.",
+    schema(json!({
+        "search": { "type": "string" },
+        "location": { "type": "string", "description": "despensa | nevera | congelador | otro" }
+    }), &[]),
+    |args, ctx| {
+        let f = nexus_core::PantryFilter {
+            search: args.get("search").and_then(Value::as_str).map(str::to_string),
+            location: args.get("location").and_then(Value::as_str)
+                .and_then(nexus_core::PantryLocation::parse),
+            ..Default::default()
+        };
+        val(ctx.services.meals.list_pantry(f).await?)
+    }
+);
+
+define_tool!(MealsShopping, "meals.shopping", Risk::Read,
+    "Lista las listas de la compra guardadas; con id devuelve una lista completa con sus artículos y estado (comprado o no).",
+    schema(json!({ "id": { "type": "string", "description": "opcional: id de una lista concreta" } }), &[]),
+    |args, ctx| {
+        match args.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+            Some(id) => val(ctx.services.meals.get_shopping_list(id).await?),
+            None => val(ctx.services.meals.list_shopping_lists().await?),
+        }
+    }
+);
+
 pub(crate) fn defaults() -> Vec<Arc<dyn Tool>> {
     vec![
         Arc::new(TasksList),
@@ -510,6 +643,16 @@ pub(crate) fn defaults() -> Vec<Arc<dyn Tool>> {
         Arc::new(InboxProcess),
         Arc::new(DashboardSummary),
         Arc::new(WebSearch),
+        Arc::new(CanvasList),
+        Arc::new(CanvasGet),
+        Arc::new(DatabasesList),
+        Arc::new(DatabasesGet),
+        Arc::new(DatabasesRecords),
+        Arc::new(MealsRecipes),
+        Arc::new(MealsRecipeGet),
+        Arc::new(MealsWeek),
+        Arc::new(MealsPantry),
+        Arc::new(MealsShopping),
     ]
 }
 
@@ -646,7 +789,7 @@ mod tests {
     fn registry_has_all_tools_with_schemas() {
         let registry = ToolRegistry::with_defaults();
         let names = registry.names();
-        assert_eq!(names.len(), 23);
+        assert_eq!(names.len(), 33);
         for name in &names {
             let tool = registry.get(name).unwrap();
             let spec = tool.spec();
