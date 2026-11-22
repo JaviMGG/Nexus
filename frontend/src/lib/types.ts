@@ -711,6 +711,11 @@ export const PALETTES: PaletteDef[] = [
     description: "GTA VI: rosa neón de los 80, cian y atardecer de Vice City",
     preview: ["#251229", "#331a38", "#ff4fa8", "#29d8ff"],
   },
+  {
+    id: "blackwall", name: "Blackwall", swatch: "#ff0055", group: "otros",
+    description: "Cyberpunk 2077: el muro de IA — protocolo SCARLET, escarlata neón y verde terminal",
+    preview: ["#101116", "#1d000a", "#ff0055", "#00ffc8"],
+  },
 ];
 
 export type PaletteId = string;
@@ -722,3 +727,15 @@ export const EVENT_COLORS: { id: EventColor; label: string }[] = [
   { id: "destructive", label: "Rojo" },
   { id: "info", label: "Azul" },
 ];
+
+// ---------------------------------------------------------------------------
+// Archivos adjuntos (compartido por Canvas, Database y Meal Planner)
+// ---------------------------------------------------------------------------
+
+export interface FileMeta {
+  id: Id;
+  name: string;
+  mime: string;
+  size: number;
+  created_at: string;
+}
