@@ -52,6 +52,13 @@ pub async fn dispatch(ctx: &AppContext, command: &str, payload: Value) -> Result
             ctx.data_changed("database");
             ok(d)
         }
+        "duplicate" => {
+            let detail = s
+                .duplicate(&arg::<String>(&payload, "id")?, "user")
+                .await?;
+            ctx.data_changed("database");
+            ok(detail)
+        }
         "delete" => {
             s.delete(&arg::<String>(&payload, "id")?, "user").await?;
             ctx.data_changed("database");

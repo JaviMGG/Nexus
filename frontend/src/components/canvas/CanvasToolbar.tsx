@@ -18,6 +18,7 @@ import {
   Download,
   FileJson,
   Group,
+  Hand,
   Image as ImageIcon,
   Keyboard,
   LayoutTemplate,
@@ -31,6 +32,7 @@ import {
   Network,
   Pencil,
   Redo2,
+  Save,
   Sparkles,
   Square,
   StickyNote,
@@ -50,10 +52,11 @@ import { Textarea } from "@/components/ui/textarea";
 import type { Canvas, CanvasTemplateInfo } from "./types";
 import { downloadBlob, downloadDataUrl, safeFilename } from "./utils";
 
-export type Tool = "select" | "sticky" | "text" | "rect" | "ellipse" | "line" | "arrow";
+export type Tool = "select" | "hand" | "sticky" | "text" | "rect" | "ellipse" | "line" | "arrow";
 
 const TOOLS: { id: Tool; label: string; icon: typeof Square }[] = [
   { id: "select", label: "Seleccionar", icon: MousePointer2 },
+  { id: "hand", label: "Mover el plano (mano)", icon: Hand },
   { id: "sticky", label: "Nota adhesiva", icon: StickyNote },
   { id: "text", label: "Texto", icon: Type },
   { id: "rect", label: "Rectángulo", icon: Square },
@@ -73,6 +76,7 @@ export interface ToolbarProps {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  onSave: () => void;
   selectionCount: number;
   onAlign: (mode: "left" | "center-x" | "right" | "top" | "center-y" | "bottom") => void;
   onDistribute: (axis: "h" | "v") => void;
@@ -110,7 +114,6 @@ export function CanvasToolbar(p: ToolbarProps) {
     if (!viewport) return;
     setExporting(true);
     const bg = getComputedStyle(document.documentElement).getPropertyValue("--background").trim() || "#ffffff";
-    // Capturamos todo el contenido (no solo lo visible): clon ampliado sin transform.
     const nodes = Array.from(viewport.querySelectorAll<HTMLElement>(".react-flow__node"));
     const edgesSvg = viewport.querySelector<SVGSVGElement>(".react-flow__edges");
     let minX = 0, minY = 0, maxX = 0, maxY = 0;
@@ -137,34 +140,11 @@ export function CanvasToolbar(p: ToolbarProps) {
     const pad = 48;
     const width = Math.max(64, Math.ceil(maxX - minX + pad * 2));
     const height = Math.max(64, Math.ceil(maxY - minY + pad * 2));
-    const clone = viewport.cloneNode(true) as HTMLElement;
-    clone.style.transform = `translate(${-minX + pad}px, ${-minY + pad}px)`;
-    clone.style.width = `${width}px`;
-    clone.style.height = `${height}px`;
-    // Quitar selección/handles del clon para una exportación limpia.
-    clone.querySelectorAll(".react-flow__handle, .react-flow__resize-control, .react-flow__nodesselection, .react-flow__selection").forEach((n) => n.remove());
-    clone.querySelectorAll<HTMLElement>(".canvas-node-selected").forEach((n) => {
-      n.style.outline = "none";
-      n.style.boxShadow = n.style.boxShadow || "";
-      n.classList.remove("canvas-node-selected", "selected");
-    });
-    clone.querySelectorAll<HTMLElement>(".react-flow__node").forEach((n) => {
-      n.classList.remove("selected");
-    });
-    clone.querySelectorAll("svg path.react-flow__edge-path").forEach((p) => {
-      const el = p as SVGPathElement;
-      if (el.style.stroke === "var(--ring)") el.style.stroke = "var(--muted-foreground)";
-    });
-    const holder = document.createElement("div");
-    holder.style.position = "fixed";
-    holder.style.left = "-100000px";
-    holder.style.top = "0";
-    holder.style.width = `${width}px`;
-    holder.style.height = `${height}px`;
-    holder.style.overflow = "hidden";
-    holder.style.background = bg;
-    holder.appendChild(clone);
-    document.body.appendChild(holder);
+    const style: Partial<CSSStyleDeclaration> = {
+      width: `${width}px`,
+      height: `${height}px`,
+      transform: `translate(${-minX + pad}px, ${-minY + pad}px)`,
+    };
     const filter = (node: HTMLElement) => {
       const cl = node.classList;
       if (!cl) return true;
@@ -179,16 +159,17 @@ export function CanvasToolbar(p: ToolbarProps) {
         !cl.contains("react-flow__selection")
       );
     };
-    const options = { backgroundColor: bg, width, height, filter };
+    const options = { backgroundColor: bg, width, height, style, filter };
     try {
-      const dataUrl = kind === "png" ? await toPng(holder, { ...options, pixelRatio: 2 }) : await toSvg(holder, options);
+      const dataUrl = kind === "png"
+        ? await toPng(viewport, { ...options, pixelRatio: 2 })
+        : await toSvg(viewport, options);
       downloadDataUrl(`${safeFilename(p.canvas.name)}.${kind}`, dataUrl);
       toast.success(`Exportado como ${kind.toUpperCase()}`);
     } catch {
       if (kind === "svg") {
-        // Reintento sin imágenes (posible cross-origin / data corrupta).
         try {
-          const dataUrl = await toSvg(holder, {
+          const dataUrl = await toSvg(viewport, {
             ...options,
             filter: (node: HTMLElement) => filter(node) && node.tagName !== "IMG",
           });
@@ -201,7 +182,6 @@ export function CanvasToolbar(p: ToolbarProps) {
         toast.error("No se pudo exportar el PNG");
       }
     } finally {
-      holder.remove();
       setExporting(false);
     }
   };
@@ -302,6 +282,9 @@ export function CanvasToolbar(p: ToolbarProps) {
       </Button>
       <Button size="icon-sm" variant="ghost" title="Rehacer (Ctrl+Y)" disabled={!p.canRedo} onClick={p.onRedo}>
         <Redo2 />
+      </Button>
+      <Button size="icon-sm" variant="ghost" title="Guardar (Ctrl+S)" onClick={p.onSave}>
+        <Save />
       </Button>
       <Button
         size="icon-sm"
@@ -409,6 +392,8 @@ export function CanvasToolbar(p: ToolbarProps) {
 // ---------------------------------------------------------------------------
 
 const SHORTCUTS: [string, string][] = [
+  ["Ctrl / Cmd + S", "Guardar el canvas ahora"],
+  ["Herramienta mano", "Arrastrar el plano con el botón izquierdo"],
   ["Ctrl + C / Ctrl + V", "Copiar y pegar selección (con desplazamiento)"],
   ["Ctrl + D", "Duplicar selección"],
   ["Ctrl + Z", "Deshacer"],

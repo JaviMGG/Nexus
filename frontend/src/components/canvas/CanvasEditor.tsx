@@ -127,6 +127,7 @@ function CanvasEditorInner({ canvas }: { canvas: Canvas }) {
   const [mindmapProposal, setMindmapProposal] = useState<AiMindmapProposal | null>(null);
   const [expandProposal, setExpandProposal] = useState<AiExpandProposal | null>(null);
   const [organizeProposal, setOrganizeProposal] = useState<AiOrganizeProposal | null>(null);
+  const selectionEchoRef = useRef(false);
   const clipboardRef = useRef<{ elements: CanvasElement[]; edges: CanvasEdge[] } | null>(null);
   const historyRef = useRef<{ past: CanvasDocument[]; future: CanvasDocument[] }>({ past: [], future: [] });
   const [historyTick, setHistoryTick] = useState(0);
@@ -160,6 +161,15 @@ function CanvasEditorInner({ canvas }: { canvas: Canvas }) {
   });
   const saveRef = useRef(save.mutate);
   saveRef.current = save.mutate;
+
+  const saveNow = useCallback(() => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    setSaveState("saving");
+    saveRef.current({ ...docRef.current, viewport: { ...viewportRef.current } });
+  }, []);
 
   const scheduleSave = useCallback((next: CanvasDocument) => {
     setSaveState("saving");
@@ -728,10 +738,11 @@ function CanvasEditorInner({ canvas }: { canvas: Canvas }) {
   // ------------------------------------------------------------------ atajos de teclado
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
+      if (mod && key === "s") { e.preventDefault(); saveNow(); return; }
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
       if (mod && key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
       else if ((mod && key === "y") || (mod && e.shiftKey && key === "z")) { e.preventDefault(); redo(); }
       else if (mod && key === "c") { e.preventDefault(); copySelection(); }
@@ -754,7 +765,7 @@ function CanvasEditorInner({ canvas }: { canvas: Canvas }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo, copySelection, pasteClipboard, duplicateSelection, groupSelection, ungroupSelection, deleteSelection]);
+  }, [saveNow, undo, redo, copySelection, pasteClipboard, duplicateSelection, groupSelection, ungroupSelection, deleteSelection]);
 
   // ------------------------------------------------------------------ sincronización doc → React Flow
   const nodeDataHandlers = useMemo(
@@ -820,6 +831,10 @@ function CanvasEditorInner({ canvas }: { canvas: Canvas }) {
   // La selección lógica incluye el grupo completo: reflejarla en React Flow.
   // onSelectionChange solo actualiza si el conjunto difiere, así el eco es inocuo.
   useEffect(() => {
+    if (selectionEchoRef.current) {
+      selectionEchoRef.current = false;
+      return;
+    }
     const selSet = new Set(expandToGroups(selectedIds));
     const edgeSelSet = new Set(selectedEdgeIds);
     setNodes((prev) =>
@@ -839,7 +854,7 @@ function CanvasEditorInner({ canvas }: { canvas: Canvas }) {
     (changes: NodeChangeset<CanvasNode>) => {
       onNodesChange(changes);
       const moved = changes.getByType("position").filter((c) => c.dragging === false && c.position);
-      const resized = changes.getByType("dimensions").filter((c) => c.resizing === false && c.setAttributes === true && c.dimensions);
+      const resized = changes.getByType("dimensions").filter((c) => c.resizing === false && c.dimensions);
       if (moved.length === 0 && resized.length === 0) return;
       const posMap = new Map(moved.map((c) => [c.id, c.position!]));
       const dimMap = new Map(resized.map((c) => [c.id, c.dimensions!]));
@@ -876,18 +891,24 @@ function CanvasEditorInner({ canvas }: { canvas: Canvas }) {
 
   const onSelectionChange = useCallback(
     ({ nodes: selNodes, edges: selEdges }: { nodes: CanvasNode[]; edges: CanvasFlowEdge[] }) => {
-      const ids = Array.from(new Set(selNodes.map((n) => n.id))).sort();
+      const ids = expandToGroups(Array.from(new Set(selNodes.map((n) => n.id))).sort());
       const edgeIds = Array.from(new Set(selEdges.map((e) => e.id))).sort();
+      let changed = false;
       setSelectedIds((cur) => {
         const c = [...cur].sort();
-        return c.length === ids.length && c.every((id, i) => id === ids[i]) ? cur : ids;
+        if (c.length === ids.length && c.every((id, i) => id === ids[i])) return cur;
+        changed = true;
+        return ids;
       });
       setSelectedEdgeIds((cur) => {
         const c = [...cur].sort();
-        return c.length === edgeIds.length && c.every((id, i) => id === edgeIds[i]) ? cur : edgeIds;
+        if (c.length === edgeIds.length && c.every((id, i) => id === edgeIds[i])) return cur;
+        changed = true;
+        return edgeIds;
       });
+      if (changed) selectionEchoRef.current = true;
     },
-    [],
+    [expandToGroups],
   );
 
   const onMoveEnd = useCallback((_: MouseEvent | TouchEvent | null, viewport: Viewport) => {
@@ -897,7 +918,8 @@ function CanvasEditorInner({ canvas }: { canvas: Canvas }) {
 
   const placeAt = useCallback(
     (clientX: number, clientY: number) => {
-      if (tool === "select") return;
+      if (tool === "select" || tool === "hand") return;
+      if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return;
       const pos = rf.screenToFlowPosition({ x: clientX, y: clientY });
       const el = addElement(tool, pos);
       setTool("select");
@@ -919,7 +941,7 @@ function CanvasEditorInner({ canvas }: { canvas: Canvas }) {
   // Colocar al soltar tras arrastrar solo si hay herramienta activa (no en selección).
   const onSelectionEnd = useCallback(
     (e: React.MouseEvent) => {
-      if (tool === "select") return;
+      if (tool === "select" || tool === "hand") return;
       placeAt(e.clientX, e.clientY);
     },
     [tool, placeAt],
@@ -991,9 +1013,10 @@ function CanvasEditorInner({ canvas }: { canvas: Canvas }) {
         maxZoom={2.5}
         snapToGrid={snap}
         snapGrid={[20, 20]}
-        selectionOnDrag
+        selectionOnDrag={tool !== "hand"}
         selectionMode={SelectionMode.Partial}
-        panOnDrag={[1, 2]}
+        panOnDrag={tool === "hand" ? true : [1, 2]}
+        nodesDraggable={tool !== "hand"}
         selectionKeyCode="Shift"
         multiSelectionKeyCode={["Shift", "Control", "Meta"]}
         deleteKeyCode={null}
@@ -1002,7 +1025,10 @@ function CanvasEditorInner({ canvas }: { canvas: Canvas }) {
         elevateNodesOnSelect={false}
         elevateEdgesOnSelect={false}
         proOptions={{ hideAttribution: true }}
-        className={cn(tool !== "select" && "cursor-crosshair")}
+        className={cn(
+          tool === "hand" && "cursor-grab active:cursor-grabbing",
+          tool !== "select" && tool !== "hand" && "cursor-crosshair",
+        )}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--border)" />
         <Controls position="bottom-left" showInteractive={false} className="!shadow-lg" />
@@ -1032,6 +1058,7 @@ function CanvasEditorInner({ canvas }: { canvas: Canvas }) {
           canRedo={historyRef.current.future.length > 0}
           onUndo={undo}
           onRedo={redo}
+          onSave={saveNow}
           selectionCount={selectedIds.length}
           onAlign={alignSelection}
           onDistribute={distributeSelection}

@@ -131,6 +131,42 @@ async fn database_crud_and_cross_reference() {
     );
 }
 
+#[tokio::test]
+async fn database_duplicate_copies_fields_records_and_views() {
+    let s = setup().await;
+    let d = make_db(&s, "Juegos").await;
+    let f = field(
+        &s,
+        &d.id,
+        "Título",
+        DbFieldKind::Text,
+        DbFieldConfig::default(),
+    )
+    .await;
+    let original = record(&s, &d.id, vals(&[(&f.id, json!("Hades"))])).await;
+
+    let copy = s.databases.duplicate(&d.id, "user").await.unwrap();
+    assert_eq!(copy.summary.database.name, "Juegos (copia)");
+    assert_ne!(copy.summary.database.id, d.id);
+    assert_eq!(copy.summary.record_count, 1);
+    assert_eq!(copy.summary.field_count, 1);
+    assert_eq!(copy.summary.view_count, 1);
+    assert_eq!(copy.fields.len(), 1);
+    assert_ne!(copy.fields[0].id, f.id);
+    assert_eq!(copy.views.len(), 1);
+
+    let copied_records =
+        nexus_db::repos::databases::all_records(&s.databases.db, &copy.summary.database.id)
+            .await
+            .unwrap();
+    assert_eq!(copied_records.len(), 1);
+    assert_ne!(copied_records[0].id, original.id);
+    assert_eq!(
+        copied_records[0].values.get(&copy.fields[0].id),
+        Some(&json!("Hades"))
+    );
+}
+
 // ---------------------------------------------------------------------------
 // 2. Validación del nombre de la base
 // ---------------------------------------------------------------------------

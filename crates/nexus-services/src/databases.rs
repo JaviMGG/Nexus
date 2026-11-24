@@ -946,6 +946,125 @@ impl DatabaseService {
         Ok(())
     }
 
+    /// Copia completa: metadatos, campos, registros y vistas. Las relaciones
+    /// internas se reescriben para apuntar a la copia.
+    pub async fn duplicate(&self, id: &str, actor: &str) -> Result<DatabaseDetail> {
+        let source = self.get(id).await?;
+        let original = &source.summary.database;
+        let copy = self
+            .create(
+                CreateDatabase {
+                    name: format!("{} (copia)", original.name),
+                    description: original.description.clone(),
+                    icon: original.icon.clone(),
+                    color: original.color.clone(),
+                },
+                actor,
+            )
+            .await?;
+
+        let mut field_map: HashMap<String, String> = HashMap::new();
+        let source_fields: HashMap<String, &DbField> = source
+            .fields
+            .iter()
+            .map(|f| (f.id.clone(), f))
+            .collect();
+        for f in &source.fields {
+            let mut config = f.config.clone();
+            if config.target_database_id.as_deref() == Some(id) {
+                config.target_database_id = Some(copy.id.clone());
+            }
+            let created = self
+                .create_field(
+                    &copy.id,
+                    CreateDbField {
+                        name: f.name.clone(),
+                        kind: f.kind,
+                        config,
+                        position: Some(f.position),
+                    },
+                    actor,
+                )
+                .await?;
+            field_map.insert(f.id.clone(), created.id);
+        }
+
+        let records = repos::databases::all_records(&self.db, id).await?;
+        let record_map: HashMap<String, String> = records
+            .iter()
+            .map(|r| (r.id.clone(), new_id()))
+            .collect();
+        for record in &records {
+            let mut values = Map::new();
+            for (fid, value) in &record.values {
+                let Some(new_fid) = field_map.get(fid) else {
+                    continue;
+                };
+                let mut new_value = value.clone();
+                let self_relation = source_fields
+                    .get(fid)
+                    .is_some_and(|f| {
+                        f.kind == DbFieldKind::Relation
+                            && f.config.target_database_id.as_deref() == Some(id)
+                    });
+                if self_relation {
+                    if let Value::Array(arr) = &new_value {
+                        new_value = Value::Array(
+                            arr.iter()
+                                .map(|v| {
+                                    let old = v.as_str().unwrap_or_default();
+                                    Value::String(
+                                        record_map
+                                            .get(old)
+                                            .cloned()
+                                            .unwrap_or_else(|| old.to_string()),
+                                    )
+                                })
+                                .collect(),
+                        );
+                    }
+                }
+                values.insert(new_fid.clone(), new_value);
+            }
+            let new_record_id = record_map
+                .get(&record.id)
+                .cloned()
+                .unwrap_or_else(new_id);
+            repos::databases::create_record(&self.db, &new_record_id, &copy.id, &values).await?;
+        }
+
+        let existing_views = repos::databases::list_views(&self.db, &copy.id).await?;
+        for (i, view) in source.views.iter().enumerate() {
+            let mut config = view.config.clone();
+            remap_view_config_ids(&mut config, &field_map);
+            if i == 0 && view.kind == DbViewKind::Table {
+                if let Some(existing) = existing_views.first() {
+                    self.update_view(
+                        &existing.id,
+                        UpdateDbView {
+                            name: Some(view.name.clone()),
+                            kind: Some(view.kind),
+                            config: Some(config),
+                        },
+                    )
+                    .await?;
+                    continue;
+                }
+            }
+            self.create_view(
+                &copy.id,
+                CreateDbView {
+                    name: view.name.clone(),
+                    kind: view.kind,
+                    config,
+                },
+            )
+            .await?;
+        }
+
+        self.get(&copy.id).await
+    }
+
     // ----------------------------------------------------------------- campos
 
     pub async fn create_field(
@@ -2480,6 +2599,37 @@ fn remap_view_config(
             }
             None => false,
         }
+    });
+    config.sorts.retain_mut(|s| match resolve(&s.field_id) {
+        Some(id) => {
+            s.field_id = id;
+            true
+        }
+        None => false,
+    });
+}
+
+fn remap_view_config_ids(config: &mut DbViewConfig, field_map: &HashMap<String, String>) {
+    let resolve = |id: &str| field_map.get(id).cloned();
+    config.visible_field_ids = config
+        .visible_field_ids
+        .iter()
+        .filter_map(|id| resolve(id))
+        .collect();
+    config.card_field_ids = config
+        .card_field_ids
+        .iter()
+        .filter_map(|id| resolve(id))
+        .collect();
+    config.group_field_id = config.group_field_id.as_deref().and_then(resolve);
+    config.date_field_id = config.date_field_id.as_deref().and_then(resolve);
+    config.image_field_id = config.image_field_id.as_deref().and_then(resolve);
+    config.filters.filters.retain_mut(|f| match resolve(&f.field_id) {
+        Some(id) => {
+            f.field_id = id;
+            true
+        }
+        None => false,
     });
     config.sorts.retain_mut(|s| match resolve(&s.field_id) {
         Some(id) => {

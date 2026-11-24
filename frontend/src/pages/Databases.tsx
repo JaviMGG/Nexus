@@ -5,11 +5,13 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   Calendar,
+  Copy,
   Database as DatabaseIcon,
   Filter,
   Image as ImageIcon,
   Kanban,
   LayoutList,
+  Loader2,
   Network,
   List,
   Pencil,
@@ -33,7 +35,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -96,10 +98,31 @@ function DatabaseListPage() {
   const [creating, setCreating] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<DatabaseSummary | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DatabaseSummary | null>(null);
 
   const list = useQuery({
     queryKey: ["databases", "list"],
     queryFn: () => invoke<DatabaseSummary[]>("databases.list"),
+  });
+
+  const duplicate = useMutation({
+    mutationFn: (id: string) => invoke<DatabaseDetail>("databases.duplicate", { id }),
+    onSuccess: (d) => {
+      invalidate();
+      toast.success(`Duplicada como «${d.name}»`);
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "No se pudo duplicar"),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => invoke("databases.delete", { id }),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Base de datos eliminada");
+      setDeleteTarget(null);
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "No se pudo eliminar"),
   });
 
   return (
@@ -156,10 +179,10 @@ function DatabaseListPage() {
           {(list.data ?? []).map((d) => {
             const c = dbColor(d.color);
             return (
-              <button
+              <div
                 key={d.id}
                 onClick={() => navigate(`/databases/${d.id}`)}
-                className="rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-all hover:shadow-md cursor-pointer"
+                className="group flex cursor-pointer flex-col rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-all hover:shadow-md"
               >
                 <div className="flex items-center gap-3">
                   <span className={cn("flex h-10 w-10 items-center justify-center rounded-lg", c.bg)}>
@@ -175,7 +198,44 @@ function DatabaseListPage() {
                   <span>{d.field_count} campo(s)</span>
                   <span className="ml-auto">{relativeTime(d.updated_at)}</span>
                 </div>
-              </button>
+                <div className="mt-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    title="Renombrar"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenameTarget(d);
+                    }}
+                  >
+                    <Pencil />
+                  </Button>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    title="Duplicar"
+                    disabled={duplicate.isPending}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      duplicate.mutate(d.id);
+                    }}
+                  >
+                    <Copy />
+                  </Button>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    className="text-destructive"
+                    title="Eliminar"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteTarget(d);
+                    }}
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              </div>
             );
           })}
         </div>
@@ -208,6 +268,30 @@ function DatabaseListPage() {
           }}
         />
       )}
+      {renameTarget && (
+        <DatabaseFormDialog
+          key={renameTarget.id}
+          database={renameTarget}
+          onClose={() => setRenameTarget(null)}
+          onSaved={() => invalidate()}
+        />
+      )}
+      <Dialog open={deleteTarget != null} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Eliminar base de datos</DialogTitle>
+            <DialogDescription>
+              «{deleteTarget?.name}» y todos sus registros se eliminarán. Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancelar</Button>
+            <Button variant="destructive" disabled={remove.isPending} onClick={() => deleteTarget && remove.mutate(deleteTarget.id)}>
+              {remove.isPending ? <Loader2 className="animate-spin" /> : <Trash2 />} Eliminar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
