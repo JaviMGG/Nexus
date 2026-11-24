@@ -32,7 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 
-const APP_VERSION = "0.1.3";
+const APP_VERSION = "0.1.4";
 
 // ---------------------------------------------------------------------------
 // Piezas reutilizables
