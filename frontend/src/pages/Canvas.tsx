@@ -360,7 +360,6 @@ export function CanvasPage() {
     queryKey: ["canvas", id],
     queryFn: () => invoke<Canvas>("canvas.get", { id }),
     enabled: !!id,
-    staleTime: Infinity,
     refetchOnWindowFocus: false,
     retry: false,
   });

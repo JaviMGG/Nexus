@@ -153,7 +153,10 @@ function CanvasEditorInner({ canvas }: { canvas: Canvas }) {
   // ------------------------------------------------------------------ persistencia
   const save = useMutation({
     mutationFn: (document: CanvasDocument) => invoke<Canvas>("canvas.save_document", { id: canvas.id, document }),
-    onSuccess: () => setSaveState("saved"),
+    onSuccess: (saved) => {
+      qc.setQueryData<Canvas>(["canvas", canvas.id], saved);
+      setSaveState("saved");
+    },
     onError: (e) => {
       setSaveState("error");
       toast.error(e instanceof ApiError ? e.message : "No se pudo guardar el canvas");
