@@ -438,7 +438,3 @@ Las migraciones de base de datos se aplican automáticamente al arrancar; tus da
   `install.sh`, como favicon web y dentro de la propia interfaz. Para cambiarlo, sustituye el
   master y regenera los tamaños (o `cargo tauri icon <png>` desde `crates/nexus-desktop`,
   copiando además el resultado a `frontend/public/logo.png` y `favicon.png`).
-
-## Licencia
-
-MIT.
