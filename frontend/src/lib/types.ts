@@ -422,6 +422,11 @@ export type Trigger =
   | { type: "schedule"; spec: ScheduleSpec }
   | { type: "event"; event: string; filter?: Record<string, unknown> };
 
+export interface TriggerEntry {
+  id: string;
+  trigger: Trigger;
+}
+
 export type Condition =
   | { type: "and"; conditions: Condition[] }
   | { type: "or"; conditions: Condition[] }
@@ -463,7 +468,7 @@ export interface Automation {
   icon: string;
   enabled: boolean;
   mode: AutomationMode;
-  trigger: Trigger;
+  triggers: TriggerEntry[];
   conditions: Condition | null;
   flow: AutomationFlow;
   permissions: { write: "auto" | "confirm" };
@@ -484,7 +489,7 @@ export interface CreateAutomation {
   icon?: string;
   enabled?: boolean;
   mode?: AutomationMode;
-  trigger: Trigger;
+  triggers: TriggerEntry[];
   conditions?: Condition | null;
   flow?: AutomationFlow;
   permissions?: { write: "auto" | "confirm" };
@@ -493,7 +498,7 @@ export interface CreateAutomation {
   template_id?: string | null;
 }
 
-export type UpdateAutomation = Partial<Omit<CreateAutomation, "trigger">> & { trigger?: Trigger };
+export type UpdateAutomation = Partial<CreateAutomation>;
 
 export interface StepLog {
   id: Id;
@@ -594,6 +599,17 @@ export interface AutomationOverview {
   daily_token_limit: number;
 }
 
+export interface MailAccount {
+  id: string;
+  name: string;
+  imap_host: string;
+  imap_port: number;
+  smtp_host: string;
+  smtp_port: number;
+  username: string;
+  use_tls: boolean;
+}
+
 export interface ActionSpec {
   id: string;
   name: string;
@@ -602,11 +618,28 @@ export interface ActionSpec {
   entity: string;
 }
 
+export type TriggerFieldKind = "text" | "date" | "datetime" | "number" | "boolean" | "enum" | "tags" | "id";
+
+export interface TriggerFieldSpec {
+  key: string;
+  label: string;
+  kind: TriggerFieldKind;
+  options: string[];
+  nullable: boolean;
+  hint: string;
+}
+
+export interface TriggerValidationError {
+  field: string;
+  message: string;
+}
+
 export interface TriggerSpec {
   id: string;
   name: string;
   description: string;
   kind: TriggerKind;
+  fields: TriggerFieldSpec[];
 }
 
 export interface MetricSpec {

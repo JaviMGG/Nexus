@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Database, Gauge, Loader2, Palette, Save, ShieldCheck, Sparkles, User, Workflow } from "lucide-react";
+import { Database, Gauge, Loader2, Mail, Palette, Save, ShieldCheck, Sparkles, User, Workflow } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { invoke, ApiError } from "@/lib/api";
 import type { AgentPermissions, AppSettings, Policy, SettingsPayload, UsageLimits } from "@/lib/types";
@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { EmptyState } from "@/components/ui/empty-state";
 import { ThemeToggle, PaletteGrid } from "@/components/settings/PaletteGrid";
 import { ProvidersSection } from "@/components/settings/ProvidersSection";
+import { MailAccountsSection } from "@/components/settings/MailAccountsSection";
 import { DataSection } from "@/components/settings/DataSection";
 
 function Section({
@@ -363,6 +364,16 @@ export function SettingsPage() {
         description="Tus automatizaciones se activan y desactivan una a una en la sección Automatizaciones. Aquí controlas cómo trabajan."
       >
         <AutomationsSection app={app} />
+      </Section>
+
+      <Separator />
+
+      <Section
+        icon={Mail}
+        title="Correo"
+        description="Cuentas IMAP/SMTP con contraseña de aplicación para conectar tu buzón."
+      >
+        <MailAccountsSection />
       </Section>
 
       <Separator />

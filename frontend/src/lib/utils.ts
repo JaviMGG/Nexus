@@ -147,8 +147,23 @@ export const WEEKDAY_FULL: Record<string, string> = {
   sun: "Domingo",
 };
 
+function filterText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : value == null ? "" : String(value);
+}
+
 export function triggerLabel(trigger: Trigger): string {
   if (trigger.type === "event") {
+    if (trigger.event === "mail.received") {
+      const filter = trigger.filter ?? {};
+      const from = filterText(filter["from~"] ?? filter.from);
+      const subject = filterText(filter["subject~"] ?? filter.subject);
+      const details = ["Correo recibido"];
+      if (from) details.push(`de ${from}`);
+      if (subject) details.push(`asunto «${subject}»`);
+      const folder = filterText(filter.folder);
+      if (folder) details.push(`carpeta ${folder}`);
+      return `Evento: ${details.join(" · ")}`;
+    }
     return `Evento: ${trigger.event}`;
   }
   const spec = trigger.spec;

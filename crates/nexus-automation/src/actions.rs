@@ -8,6 +8,7 @@ use nexus_core::{
     TaskFilter, TaskRefParams, TaskStatus, UpdateNote, UpdateProject, UpdateTask,
 };
 use nexus_services::Services;
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 /// (id, nombre, descripción, riesgo, entidad)
@@ -166,6 +167,20 @@ pub const CATALOG: &[(&str, &str, &str, &str, &str)] = &[
         "sensitive",
         "task",
     ),
+    (
+        "mail.send",
+        "Enviar correo",
+        "Envía un correo SMTP desde una cuenta configurada",
+        "sensitive",
+        "mail",
+    ),
+    (
+        "mail.reply",
+        "Responder correo",
+        "Responde un correo SMTP desde una cuenta configurada",
+        "sensitive",
+        "mail",
+    ),
 ];
 
 pub fn catalog() -> Vec<ActionSpec> {
@@ -213,6 +228,18 @@ pub fn display_name(id: &str) -> String {
 pub type AutomationRunner<'a> = dyn Fn(String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value>> + Send + 'a>>
     + Sync
     + 'a;
+
+#[derive(Deserialize)]
+struct MailSendParams {
+    account: String,
+    #[serde(default)]
+    to: Option<String>,
+    #[serde(default)]
+    subject: Option<String>,
+    body: String,
+    #[serde(default)]
+    in_reply_to: Option<String>,
+}
 
 /// Contexto de ejecución de una acción.
 pub struct ActionContext<'a> {
@@ -311,6 +338,16 @@ pub fn preview(action: &str, params: &Value, ctx: &ActionContext<'_>) -> String 
         "tasks.delete" => format!("Eliminar la tarea {} (papelera)", p("task_id")),
         "notes.delete" => format!("Eliminar la nota {} (papelera)", p("note_id")),
         "system.run_automation" => format!("Ejecutar la automatización {}", p("automation_id")),
+        "mail.send" | "mail.reply" => format!(
+            "{} correo a {} con asunto «{}»",
+            if action == "mail.reply" {
+                "Responder"
+            } else {
+                "Enviar"
+            },
+            ctx.interpolated(p("to")),
+            ctx.interpolated(p("subject"))
+        ),
         _ => format!("{} con {}", display_name(action), params),
     }
 }
@@ -548,6 +585,53 @@ pub async fn execute(
             })?;
             let result = runner(p.automation_id.clone()).await?;
             Ok((result, vec!["automation"]))
+        }
+        "mail.send" | "mail.reply" => {
+            let p: MailSendParams = parse(params)?;
+            let account_ref = ip(&p.account);
+            let account = ctx.resolve_id(&account_ref)?;
+            let to_ref =
+                p.to.as_deref()
+                    .or_else(|| {
+                        if action == "mail.reply" {
+                            ctx.event_data.get("from").and_then(Value::as_str)
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or_else(|| NexusError::validation("falta el destinatario del correo"))?;
+            let to = ip(to_ref);
+            let subject_ref = p.subject.as_deref().or_else(|| {
+                if action == "mail.reply" {
+                    ctx.event_data.get("subject").and_then(Value::as_str)
+                } else {
+                    None
+                }
+            });
+            let subject = ip(subject_ref.unwrap_or(""));
+            let subject = if action == "mail.reply"
+                && !subject.trim().to_ascii_lowercase().starts_with("re:")
+            {
+                format!("Re: {subject}")
+            } else {
+                subject
+            };
+            let body = ip(&p.body);
+            let reply = p.in_reply_to.as_deref().or_else(|| {
+                if action == "mail.reply" {
+                    ctx.event_data.get("message_id").and_then(Value::as_str)
+                } else {
+                    None
+                }
+            });
+            let in_reply_to = reply.map(ip);
+            s.mail
+                .send(&account, &to, &subject, &body, in_reply_to.as_deref())
+                .await?;
+            Ok((
+                json!({"sent": true, "account": account, "to": to}),
+                vec!["mail"],
+            ))
         }
         other => Err(NexusError::validation(format!(
             "acción desconocida: {other}"

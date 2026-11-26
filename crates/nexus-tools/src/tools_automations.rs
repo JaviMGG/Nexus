@@ -29,7 +29,7 @@ define_tool!(
     AutomationsGet,
     "automations.get",
     Risk::Read,
-    "Obtiene el detalle de una automatización por id: trigger, flujo, límites y estado.",
+    "Obtiene el detalle de una automatización por id: disparadores, flujo, límites y estado.",
     schema(json!({ "id": { "type": "string" } }), &["id"]),
     |args, ctx| {
         let id = req_str(&args, "id")?;
@@ -42,14 +42,18 @@ define_tool!(
     "automations.create",
     Risk::Write,
     confirm,
-    "Crea una automatización real (trigger + flujo). Requiere autorización del usuario; por defecto se crea desactivada.",
+    "Crea una automatización real (disparadores + flujo). Requiere autorización del usuario; por defecto se crea desactivada.",
     schema(
         json!({
             "name": { "type": "string" },
             "description": { "type": "string" },
+            "triggers": {
+                "type": "array",
+                "description": "Array de entradas {\"id\":\"t0\",\"trigger\":{...}}. Cada trigger: {\"type\":\"schedule\",\"spec\":{\"kind\":\"daily\",\"time\":\"08:00\"}} o {\"type\":\"event\",\"event\":\"task.created\",\"filter\":{}}. Kinds de schedule: daily/weekly/monthly/interval/once. Vacío = borrador manual."
+            },
             "trigger": {
                 "type": "object",
-                "description": "Forma: {\"type\":\"schedule\",\"spec\":{\"kind\":\"daily\",\"time\":\"08:00\"}} o {\"type\":\"event\",\"event\":\"task.created\",\"filter\":{}}. Kinds de schedule: daily/weekly/monthly/interval/once."
+                "description": "Compatibilidad: un trigger suelto se convierte en una entrada con id t0."
             },
             "flow": {
                 "type": "object",
@@ -61,18 +65,25 @@ define_tool!(
             },
             "mode": enum_prop(&["local", "ai", "hybrid"])
         }),
-        &["name", "trigger"]
+        &["name"]
     ),
     |args, ctx| {
+        let triggers = match args.get("triggers") {
+            Some(v) if v.is_array() => v.clone(),
+            _ => match args.get("trigger") {
+                Some(t) if t.is_object() => {
+                    json!([{"id": "t0", "trigger": t}])
+                }
+                _ => {
+                    return Err(NexusError::validation(
+                        "falta 'triggers' (array) o 'trigger' (object)",
+                    ))
+                }
+            },
+        };
         let mut data = json!({
             "name": req_str(&args, "name")?,
-            "trigger": args
-                .get("trigger")
-                .filter(|v| v.is_object())
-                .ok_or_else(|| {
-                    NexusError::validation("falta el campo obligatorio 'trigger' (object)")
-                })?
-                .clone(),
+            "triggers": triggers,
         });
         for key in ["description", "flow", "enabled", "mode"] {
             if let Some(v) = args.get(key) {
@@ -135,7 +146,7 @@ mod tests {
             "icon": "",
             "enabled": enabled,
             "mode": "local",
-            "trigger": { "type": "schedule", "spec": { "kind": "daily", "time": "08:00" } },
+            "triggers": [{ "id": "t0", "trigger": { "type": "schedule", "spec": { "kind": "daily", "time": "08:00" } } }],
             "conditions": null,
             "flow": { "version": 1, "steps": [], "entry": null },
             "permissions": { "write": "auto" },
@@ -176,7 +187,7 @@ mod tests {
         async fn create(&self, data: CreateAutomation) -> Result<Automation> {
             let mut a = automation("auto-nueva", &data.name, data.enabled.unwrap_or(false));
             a.description = data.description;
-            a.trigger = data.trigger;
+            a.triggers = data.triggers;
             if let Some(flow) = data.flow {
                 a.flow = flow;
             }
@@ -197,9 +208,7 @@ mod tests {
 
     async fn ctx() -> ToolContext {
         ToolContext {
-            services: nexus_services::Services::new(
-                nexus_db::Db::connect_memory().await.unwrap(),
-            ),
+            services: nexus_services::Services::new(nexus_db::Db::connect_memory().await.unwrap()),
             run_id: "t".into(),
             agent_id: "executor".into(),
             automation: Some(Arc::new(MockOps {
@@ -267,7 +276,7 @@ mod tests {
         let created = create.execute(args, &ctx).await.unwrap();
         assert_eq!(created["name"], "Completar tarea al crearla");
         assert_eq!(created["enabled"], false);
-        assert_eq!(created["trigger"]["type"], "event");
+        assert_eq!(created["triggers"][0]["trigger"]["type"], "event");
         assert_eq!(created["flow"]["entry"], "p1");
 
         let got = tool("automations.get")

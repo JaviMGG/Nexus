@@ -144,6 +144,18 @@ impl SettingsService {
         Ok(providers)
     }
 
+    pub async fn save_secret(&self, name: &str, value: &str) -> Result<()> {
+        repos::settings::set(&self.db, &secret_key(name), value).await
+    }
+
+    pub async fn delete_secret(&self, name: &str) -> Result<()> {
+        repos::settings::delete(&self.db, &secret_key(name)).await
+    }
+
+    pub async fn get_named_secret(&self, name: &str) -> Result<Option<String>> {
+        repos::settings::get(&self.db, &secret_key(name)).await
+    }
+
     /// Solo para uso interno del backend (adaptadores de IA). Nunca exponer por API.
     pub async fn get_secret(&self, provider_id: &str) -> Result<Option<String>> {
         repos::settings::get(&self.db, &format!("{SECRET_PREFIX}{provider_id}")).await
@@ -172,6 +184,14 @@ impl SettingsService {
 
 fn new_provider_id() -> Id {
     nexus_core::new_id()
+}
+
+fn secret_key(name: &str) -> String {
+    if name.starts_with("secret:") {
+        name.to_string()
+    } else {
+        format!("secret:{name}")
+    }
 }
 
 fn merge(base: &mut serde_json::Value, patch: &serde_json::Value) {

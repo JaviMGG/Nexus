@@ -9,7 +9,7 @@ const TITLES: Record<string, string> = {
   "/tasks": "Tareas",
   "/projects": "Proyectos",
   "/calendar": "Calendario",
-  "/knowledge": "Conocimiento",
+  "/knowledge": "Notas",
   "/chat": "Chat IA",
   "/agents": "Agentes",
   "/activity": "Actividad",

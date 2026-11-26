@@ -96,7 +96,7 @@ export function KnowledgePage() {
     <div className="mx-auto flex h-full max-w-[1200px] flex-col p-6 animate-fade-in">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Conocimiento</h1>
+          <h1 className="text-lg font-semibold tracking-tight">Notas</h1>
           <p className="text-xs text-muted-foreground">Tus notas, ideas, documentos y enlaces en un solo lugar.</p>
         </div>
         <Button size="sm" onClick={startNew}>

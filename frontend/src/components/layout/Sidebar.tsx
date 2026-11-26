@@ -46,7 +46,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { to: "/tasks", label: "Tareas", icon: CheckSquare },
       { to: "/projects", label: "Proyectos", icon: FolderKanban },
       { to: "/calendar", label: "Calendario", icon: CalendarDays },
-      { to: "/knowledge", label: "Conocimiento", icon: BookOpen },
+      { to: "/knowledge", label: "Notas", icon: BookOpen },
     ],
   },
   {
@@ -143,7 +143,7 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className={cn("border-t border-sidebar-border p-2.5 space-y-1", collapsed && "px-1.5")}>
+      <div className={cn("border-t border-sidebar-border p-2.5 space-y-1", collapsed && "flex flex-col items-center px-1.5")}>
         <div className={cn("flex items-center", collapsed ? "justify-center" : "justify-between")}>
           <AiStatusPill compact={collapsed} />
           {!collapsed && (

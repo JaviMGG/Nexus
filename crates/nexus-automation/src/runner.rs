@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use nexus_core::{
     new_id, now, now_str, AgentRun, AppEvent, Automation, AutomationApproval,
     AutomationApprovalStatus, AutomationExecution, AutomationMode, Condition, ExecutionStatus,
-    NexusError, Policy, Result, StepKind, StepLog, StepStatus,
+    NexusError, Policy, Result, StepKind, StepLog, StepStatus, Trigger, TriggerEntry,
 };
 use nexus_db::repos;
 use serde_json::{json, Value};
@@ -30,9 +30,11 @@ pub struct RunOutcome {
 impl AutomationManager {
     /// Ejecución síncrona (encadenado entre automatizaciones y tests):
     /// crea el registro y espera a que el flujo termine.
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         self: &Arc<Self>,
         automation: Automation,
+        trigger: &Trigger,
         trigger_detail: String,
         event_data: Value,
         test_run: bool,
@@ -43,7 +45,7 @@ impl AutomationManager {
             id: new_id(),
             automation_id: automation.id.clone(),
             automation_name: automation.name.clone(),
-            trigger_kind: automation.trigger.kind(),
+            trigger_kind: trigger.kind(),
             trigger_detail: trigger_detail.clone(),
             mode: automation.mode,
             status: ExecutionStatus::Pending,
@@ -62,6 +64,10 @@ impl AutomationManager {
         self.run_registered(
             &execution.id,
             automation,
+            TriggerEntry {
+                id: "manual".into(),
+                trigger: trigger.clone(),
+            },
             trigger_detail,
             event_data,
             test_run,
@@ -308,9 +314,11 @@ impl AutomationManager {
                         let chained = chained.clone();
                         Box::pin(async move {
                             let target = repos::automations::get(&chained.services.db, &id).await?;
+                            let trigger = crate::manager::manual_entry(&target).trigger;
                             let outcome = chained
                                 .execute(
                                     target,
+                                    &trigger,
                                     "encadenada".into(),
                                     json!({}),
                                     false,

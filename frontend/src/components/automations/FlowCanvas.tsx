@@ -23,6 +23,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Bell,
   Bot,
+  CalendarClock,
   CheckCircle2,
   Flag,
   GitBranch,
@@ -35,11 +36,18 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { invoke } from "@/lib/api";
-import type { AutomationFlow, FlowStep, Id, StepKind, Trigger } from "@/lib/types";
+import type { AutomationFlow, FlowStep, Id, StepKind, Trigger, TriggerEntry, TriggerSpec } from "@/lib/types";
 import { AGENT_LABEL, cn, triggerLabel } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { StepEditor } from "./StepEditor";
+import { DEFAULT_SCHEDULE, TriggerEditor } from "./TriggerEditor";
 
 const KIND_META: Record<string, { label: string; icon: LucideIcon; chip: string }> = {
   action: { label: "Acción", icon: Wrench, chip: "bg-primary/15 text-primary" },
@@ -175,18 +183,47 @@ function StepNode({ data }: NodeProps<Node<StepNodeData>>) {
   );
 }
 
-type TriggerNodeData = { trigger: Trigger };
+type GraphHandlers = Omit<StepNodeData, "step" | "isEntry" | "selected"> & {
+  onTriggerDelete: (id: Id) => void;
+};
+
+type TriggerNodeData = {
+  trigger: Trigger;
+  entryId: Id;
+  selected: boolean;
+  onSelect: (id: Id) => void;
+  onDelete: (id: Id) => void;
+};
 
 function TriggerNode({ data }: NodeProps<Node<TriggerNodeData>>) {
+  const { trigger, entryId, selected, onSelect, onDelete } = data;
   return (
-    <div className="w-[230px] rounded-xl border-2 border-primary/50 bg-card shadow-sm">
+    <div
+      onClick={() => onSelect(entryId)}
+      className={cn(
+        "relative w-[230px] cursor-pointer rounded-xl border-2 bg-card shadow-sm transition-shadow",
+        selected ? "border-ring ring-2 ring-ring/30" : "border-primary/50 hover:shadow-md",
+      )}
+    >
       <div className="flex items-center gap-2 px-3 pt-2.5">
         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
           <Zap className="h-3.5 w-3.5" />
         </span>
-        <span className="text-xs font-semibold">Disparador</span>
+        <span className="flex-1 text-xs font-semibold">Disparador</span>
       </div>
-      <p className="px-3 pb-2.5 pt-1 text-[11px] text-muted-foreground">{triggerLabel(data.trigger)}</p>
+      <p className="px-3 pb-2 pt-1 text-[11px] text-muted-foreground" title={triggerLabel(trigger)}>
+        {triggerLabel(trigger)}
+      </p>
+      <div className="flex items-center justify-between border-t border-border/60 px-2 py-1">
+        <span className="text-[10px] text-muted-foreground">al inicio</span>
+        <button
+          className="rounded p-0.5 text-muted-foreground hover:text-destructive cursor-pointer"
+          onClick={(e) => { e.stopPropagation(); onDelete(entryId); }}
+          title="Eliminar disparador"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
       <Handle type="source" position={Position.Right} className={cn(handleClass, "!bg-primary")} />
     </div>
   );
@@ -232,18 +269,27 @@ function autoLayout(flow: AutomationFlow): Record<Id, [number, number]> {
   return positions;
 }
 
-function buildGraph(flow: AutomationFlow, trigger: Trigger, selectedId: Id | null, handlers: Omit<StepNodeData, "step" | "isEntry" | "selected">) {
+function buildGraph(
+  flow: AutomationFlow,
+  triggers: TriggerEntry[],
+  selectedId: Id | null,
+  handlers: GraphHandlers,
+) {
   const positions = { ...autoLayout(flow), ...(flow.positions ?? {}) };
   const entry = flow.entry ?? flow.steps[0]?.id ?? null;
-  const nodes: Node[] = [
-    {
-      id: "__trigger__",
-      type: "trigger",
-      position: toXY(positions.__trigger__ ?? [0, 0]),
-      data: { trigger },
-      deletable: false,
+  const nodes: Node[] = triggers.map((entryItem, i) => ({
+    id: entryItem.id,
+    type: "trigger",
+    position: toXY(positions[entryItem.id] ?? [0, i * 150]),
+    data: {
+      trigger: entryItem.trigger,
+      entryId: entryItem.id,
+      selected: selectedId === entryItem.id,
+      onSelect: handlers.onSelect,
+      onDelete: handlers.onTriggerDelete,
     },
-  ];
+    deletable: false,
+  }));
   for (const step of flow.steps) {
     nodes.push({
       id: step.id,
@@ -260,7 +306,16 @@ function buildGraph(flow: AutomationFlow, trigger: Trigger, selectedId: Id | nul
     style: { strokeWidth: 1.5 },
   };
   if (entry) {
-    edges.push({ ...base, id: "__trigger__->entry", source: "__trigger__", target: entry, style: { ...base.style, stroke: "var(--primary)" } });
+    for (const entryItem of triggers) {
+      edges.push({
+        ...base,
+        id: `${entryItem.id}->${entry}`,
+        source: entryItem.id,
+        target: entry,
+        deletable: false,
+        style: { ...base.style, stroke: "var(--primary)" },
+      });
+    }
   }
   for (const step of flow.steps) {
     if (step.type === "condition") {
@@ -277,12 +332,30 @@ function buildGraph(flow: AutomationFlow, trigger: Trigger, selectedId: Id | nul
 // Lienzo
 // ---------------------------------------------------------------------------
 
-function CanvasInner({ flow, trigger, onChange, height = 520 }: { flow: AutomationFlow; trigger: Trigger; onChange: (f: AutomationFlow) => void; height?: number }) {
+function CanvasInner({
+  flow,
+  triggers,
+  triggerSpecs = [],
+  onChange,
+  onTriggersChange,
+  height = 520,
+}: {
+  flow: AutomationFlow;
+  triggers: TriggerEntry[];
+  triggerSpecs?: TriggerSpec[];
+  onChange: (f: AutomationFlow) => void;
+  onTriggersChange: (t: TriggerEntry[]) => void;
+  height?: number;
+}) {
   const [selectedId, setSelectedId] = useState<Id | null>(null);
   const flowRef = useRef(flow);
   flowRef.current = flow;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const triggersRef = useRef(triggers);
+  triggersRef.current = triggers;
+  const onTriggersChangeRef = useRef(onTriggersChange);
+  onTriggersChangeRef.current = onTriggersChange;
   const { screenToFlowPosition } = useReactFlow();
 
   const updateStep = useCallback((updated: FlowStep) => {
@@ -313,23 +386,32 @@ function CanvasInner({ flow, trigger, onChange, height = 520 }: { flow: Automati
     onChangeRef.current({ ...flowRef.current, entry: id });
   }, []);
 
+  const updateTrigger = useCallback((updated: TriggerEntry) => {
+    onTriggersChangeRef.current(triggersRef.current.map((t) => (t.id === updated.id ? updated : t)));
+  }, []);
+
+  const deleteTrigger = useCallback((id: Id) => {
+    onTriggersChangeRef.current(triggersRef.current.filter((t) => t.id !== id));
+    setSelectedId((sel) => (sel === id ? null : sel));
+  }, []);
+
   const handlers = useMemo(
-    () => ({ onSelect: setSelectedId, onDelete: deleteStep, onSetEntry: setEntry }),
-    [deleteStep, setEntry],
+    () => ({ onSelect: setSelectedId, onDelete: deleteStep, onTriggerDelete: deleteTrigger, onSetEntry: setEntry }),
+    [deleteStep, deleteTrigger, setEntry],
   );
 
-  const initial = useMemo(() => buildGraph(flow, trigger, null, handlers), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const initial = useMemo(() => buildGraph(flow, triggers, null, handlers), []); // eslint-disable-line react-hooks/exhaustive-deps
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
 
   useEffect(() => {
-    const graph = buildGraph(flow, trigger, selectedId, handlers);
+    const graph = buildGraph(flow, triggers, selectedId, handlers);
     setNodes((prev) => {
       const prevPos = new Map(prev.map((n) => [n.id, n.position]));
       return graph.nodes.map((n) => ({ ...n, position: prevPos.get(n.id) ?? n.position }));
     });
     setEdges(graph.edges);
-  }, [flow, trigger, selectedId, handlers, setNodes, setEdges]);
+  }, [flow, triggers, selectedId, handlers, setNodes, setEdges]);
 
   const handleNodesChange = useCallback(
     (changes: NodeChangeset<Node>) => {
@@ -337,11 +419,16 @@ function CanvasInner({ flow, trigger, onChange, height = 520 }: { flow: Automati
       const moved = changes.getByType("position").filter((c) => c.dragging === false && c.position);
       if (moved.length === 0) return;
       const f = flowRef.current;
+      const stepIds = new Set(f.steps.map((s) => s.id));
       const positions = { ...(f.positions ?? {}) };
+      let changed = false;
       for (const c of moved) {
-        if (c.position) positions[c.id] = [c.position.x, c.position.y];
+        if (c.position && stepIds.has(c.id)) {
+          positions[c.id] = [c.position.x, c.position.y];
+          changed = true;
+        }
       }
-      onChangeRef.current({ ...f, positions });
+      if (changed) onChangeRef.current({ ...f, positions });
     },
     [onNodesChange],
   );
@@ -349,8 +436,10 @@ function CanvasInner({ flow, trigger, onChange, height = 520 }: { flow: Automati
   const applyConnection = useCallback((source: Id, sourceHandle: string | null, target: Id) => {
     const f = flowRef.current;
     if (source === target) return;
-    if (source === "__trigger__") {
-      if (f.steps.some((s) => s.id === target)) onChangeRef.current({ ...f, entry: target });
+    if (triggersRef.current.some((t) => t.id === source)) {
+      if (f.steps.some((s) => s.id === target)) {
+        onChangeRef.current({ ...f, entry: target });
+      }
       return;
     }
     // Evitar ciclos: no conectar si el destino ya alcanza el origen.
@@ -392,22 +481,25 @@ function CanvasInner({ flow, trigger, onChange, height = 520 }: { flow: Automati
 
   const onEdgesDelete = useCallback((deleted: Edge[]) => {
     const f = flowRef.current;
-    let entry = f.entry;
+    const triggerIds = new Set(triggersRef.current.map((t) => t.id));
+    let changed = false;
     const steps = f.steps.map((s) => {
       let u = { ...s };
+      let stepChanged = false;
       for (const e of deleted) {
-        if (e.source === "__trigger__" && e.target === entry) entry = null;
-        if (e.source !== s.id) continue;
+        if (triggerIds.has(e.source) || e.source !== s.id) continue;
         if (u.type === "condition") {
-          if (e.sourceHandle === "true" && u.on_true === e.target) u = { ...u, on_true: null };
-          if (e.sourceHandle === "false" && u.on_false === e.target) u = { ...u, on_false: null };
+          if (e.sourceHandle === "true" && u.on_true === e.target) { u = { ...u, on_true: null }; stepChanged = true; }
+          if (e.sourceHandle === "false" && u.on_false === e.target) { u = { ...u, on_false: null }; stepChanged = true; }
         } else if (u.type !== "end" && u.next === e.target) {
           u = { ...u, next: null };
+          stepChanged = true;
         }
       }
-      return u;
+      if (stepChanged) changed = true;
+      return stepChanged ? u : s;
     });
-    onChangeRef.current({ ...f, steps, entry });
+    if (changed) onChangeRef.current({ ...f, steps });
   }, []);
 
   const addStep = useCallback(
@@ -428,29 +520,66 @@ function CanvasInner({ flow, trigger, onChange, height = 520 }: { flow: Automati
     [screenToFlowPosition],
   );
 
+  const addTrigger = useCallback(
+    (type: string) => {
+      const id = `t_${Math.random().toString(36).slice(2, 10)}`;
+      const trigger: Trigger = type === "schedule"
+        ? { type: "schedule", spec: { ...DEFAULT_SCHEDULE } }
+        : { type: "event", event: type, filter: {} };
+      onTriggersChangeRef.current([...triggersRef.current, { id, trigger }]);
+      setSelectedId(id);
+    },
+    [],
+  );
+
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
+      const point = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      const triggerType = e.dataTransfer.getData("application/nexus-trigger");
+      if (triggerType) {
+        addTrigger(triggerType);
+        return;
+      }
       const type = e.dataTransfer.getData("application/nexus-step");
       if (!type) return;
-      addStep(type, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+      addStep(type, point);
     },
-    [addStep, screenToFlowPosition],
+    [addStep, addTrigger, screenToFlowPosition],
   );
 
   const validation = useQuery({
-    queryKey: ["automation-validate", flow],
-    queryFn: () => invoke<{ valid: boolean }>("automations.validate", { flow }),
+    queryKey: ["automation-validate", flow, triggers],
+    queryFn: () => invoke<{ valid: boolean }>("automations.validate", { flow, triggers }),
     retry: false,
   });
   const error = validation.isError ? (validation.error as { message?: string })?.message ?? "Flujo inválido" : null;
 
   const selectedStep = flow.steps.find((s) => s.id === selectedId) ?? null;
+  const selectedTrigger = triggers.find((t) => t.id === selectedId) ?? null;
+  const eventSpecs = triggerSpecs.filter((s) => s.kind === "event");
 
   return (
     <div className="min-w-0">
-      <div className="mb-2 flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Arrastra o pulsa:</span>
+      <div className="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
+        <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Nodos:</span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="outline" className="h-7 text-xs">
+              <Zap /> triggers
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+            <DropdownMenuItem onSelect={() => addTrigger("schedule")}>
+              <CalendarClock /> Programación temporal
+            </DropdownMenuItem>
+            {eventSpecs.map((spec) => (
+              <DropdownMenuItem key={spec.id} onSelect={() => addTrigger(spec.id)}>
+                <Zap /> {spec.name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         {Object.entries(KIND_META).map(([type, meta]) => (
           <Button
             key={type}
@@ -483,18 +612,18 @@ function CanvasInner({ flow, trigger, onChange, height = 520 }: { flow: Automati
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onEdgesDelete={onEdgesDelete}
-          onNodeClick={(_, node) => node.id !== "__trigger__" && setSelectedId(node.id)}
+          onNodeClick={(_, node) => setSelectedId(node.id)}
           onPaneClick={() => setSelectedId(null)}
           fitView
           fitViewOptions={{ padding: 0.2 }}
           minZoom={0.3}
           maxZoom={1.6}
           proOptions={{ hideAttribution: true }}
-          deleteKeyCode={null}
+          deleteKeyCode={["Delete"]}
         >
           <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="var(--border)" />
           <Controls showInteractive={false} />
-          {!selectedStep && (
+          {!selectedStep && !selectedTrigger && (
             <MiniMap
               pannable
               zoomable
@@ -505,14 +634,19 @@ function CanvasInner({ flow, trigger, onChange, height = 520 }: { flow: Automati
           )}
         </ReactFlow>
 
-        {selectedStep && (
+        {(selectedStep || selectedTrigger) && (
           <div className="absolute bottom-3 right-3 top-3 z-10 w-[300px] overflow-y-auto rounded-xl border border-border bg-card/95 p-3 shadow-lg backdrop-blur animate-fade-in">
             <div className="mb-2 flex items-center justify-between gap-1">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {KIND_META[selectedStep.type]?.label ?? selectedStep.type}
+                {selectedTrigger ? "Disparador" : selectedStep ? (KIND_META[selectedStep.type]?.label ?? selectedStep.type) : ""}
               </h4>
               <div className="flex items-center">
-                <Button size="sm" variant="ghost" className="h-6 text-[11px] text-destructive" onClick={() => deleteStep(selectedStep.id)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 text-[11px] text-destructive"
+                  onClick={() => selectedTrigger ? deleteTrigger(selectedTrigger.id) : selectedStep && deleteStep(selectedStep.id)}
+                >
                   <Trash2 /> Eliminar
                 </Button>
                 <Button size="icon-sm" variant="ghost" className="h-6 w-6" onClick={() => setSelectedId(null)} aria-label="Cerrar panel">
@@ -520,7 +654,11 @@ function CanvasInner({ flow, trigger, onChange, height = 520 }: { flow: Automati
                 </Button>
               </div>
             </div>
-            <StepEditor step={selectedStep} onChange={updateStep} />
+            {selectedTrigger ? (
+              <TriggerEditor trigger={selectedTrigger.trigger} onChange={(t) => updateTrigger({ ...selectedTrigger, trigger: t })} />
+            ) : selectedStep ? (
+              <StepEditor step={selectedStep} onChange={updateStep} />
+            ) : null}
           </div>
         )}
       </div>
@@ -536,17 +674,38 @@ function CanvasInner({ flow, trigger, onChange, height = 520 }: { flow: Automati
           </span>
         )}
         <span className="text-[11px] text-muted-foreground">
-          Conecta arrastrando desde el punto derecho de un nodo hasta otro · selecciona una flecha y pulsa Supr para desconectar · el nodo «Disparador» apunta a la entrada.
+          Conecta arrastrando desde el punto derecho de un nodo hasta otro · selecciona una flecha de nodos y pulsa Supr para desconectar · todos los disparadores apuntan al paso de entrada; elimina el disparador si no lo quieres.
         </span>
       </div>
     </div>
   );
 }
 
-export function FlowCanvas(props: { flow: AutomationFlow; trigger: Trigger; onChange: (f: AutomationFlow) => void; height?: number }) {
+export function FlowCanvas({
+  flow,
+  triggers,
+  triggerSpecs,
+  onChange,
+  onTriggersChange,
+  height,
+}: {
+  flow: AutomationFlow;
+  triggers: TriggerEntry[];
+  triggerSpecs?: TriggerSpec[];
+  onChange: (f: AutomationFlow) => void;
+  onTriggersChange: (t: TriggerEntry[]) => void;
+  height?: number;
+}) {
   return (
     <ReactFlowProvider>
-      <CanvasInner {...props} />
+      <CanvasInner
+        flow={flow}
+        triggers={triggers}
+        triggerSpecs={triggerSpecs}
+        onChange={onChange}
+        onTriggersChange={onTriggersChange}
+        height={height}
+      />
     </ReactFlowProvider>
   );
 }

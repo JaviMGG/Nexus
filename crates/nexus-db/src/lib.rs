@@ -3,6 +3,9 @@
 
 pub mod repos;
 
+#[path = "repos/mail.rs"]
+pub mod mail;
+
 use std::path::Path;
 use std::str::FromStr;
 

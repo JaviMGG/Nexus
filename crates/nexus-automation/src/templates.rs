@@ -3,7 +3,7 @@
 
 use nexus_core::{
     AutomationFlow, AutomationLimits, AutomationMode, AutomationTemplate, CompareOp, Condition,
-    CreateAutomation, FlowStep, ScheduleSpec, StepKind, Trigger,
+    CreateAutomation, FlowStep, ScheduleSpec, StepKind, Trigger, TriggerEntry,
 };
 use serde_json::json;
 
@@ -100,7 +100,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "sunrise".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Hybrid),
-                trigger: daily("08:00"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: daily("08:00") }],
                 conditions: None,
                 flow: Some(flow("report", vec![
                     step("report", StepKind::Action { action: "system.report".into(), params: json!({"title": "Briefing {{date}}", "save_as": "briefing_note"}), approval: None }, Some("plan")),
@@ -132,7 +132,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "alarm-clock".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Hybrid),
-                trigger: event("task.overdue"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: event("task.overdue") }],
                 conditions: None,
                 flow: Some(flow("notify", vec![
                     notify("notify", "Tarea vencida: {{title}}", "La tarea «{{title}}» vencía el {{due_date}} y sigue sin completarse.", Some("plan")),
@@ -164,7 +164,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "lightbulb".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Ai),
-                trigger: event("idea.created"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: event("idea.created") }],
                 conditions: None,
                 flow: Some(flow("analyze", vec![
                     agent("analyze", "knowledge", "Analiza la idea «{{title}}» (id {{id}}): {{content}}. Propón una categoría, hasta 3 etiquetas en minúsculas y si debería convertirse en tarea. Devuelve SOLO un JSON con claves: category, tags (array), should_be_task (bool), reason. No crees nada.", Some("save")),
@@ -195,7 +195,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "rocket".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Ai),
-                trigger: event("project.created"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: event("project.created") }],
                 conditions: None,
                 flow: Some(flow("analyze", vec![
                     agent("analyze", "project_manager", "Se ha creado el proyecto «{{name}}» (id {{id}}). Objetivo: {{goal}}. Descripción: {{description}}. Analiza el objetivo, propón fases, tareas concretas con prioridades y una planificación inicial. NO crees tareas todavía: presenta la propuesta en markdown para aprobación. Responde en español.", Some("save")),
@@ -227,7 +227,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "hourglass".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Hybrid),
-                trigger: daily("09:00"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: daily("09:00") }],
                 conditions: Some(Condition::Metric {
                     metric: "active_projects".into(),
                     op: CompareOp::Gt,
@@ -268,14 +268,14 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "calendar-check".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Hybrid),
-                trigger: Trigger::Schedule {
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: Trigger::Schedule {
                     spec: ScheduleSpec {
                         kind: "weekly".into(),
                         time: Some("18:00".into()),
                         weekdays: vec!["sun".into()],
                         ..Default::default()
                     },
-                },
+                } }],
                 conditions: None,
                 flow: Some(flow("report", vec![
                     step("report", StepKind::Action { action: "system.report".into(), params: json!({"title": "Datos semanales"}), approval: None }, Some("review")),
@@ -308,7 +308,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "sunset".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Hybrid),
-                trigger: daily("20:00"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: daily("20:00") }],
                 conditions: None,
                 flow: Some(flow("report", vec![
                     step("report", StepKind::Action { action: "system.report".into(), params: json!({"title": "Cierre del día"}), approval: None }, Some("plan")),
@@ -340,7 +340,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "target".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Ai),
-                trigger: event("goal.created"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: event("goal.created") }],
                 conditions: None,
                 flow: Some(flow("break", vec![
                     agent("break", "planner", "Nuevo objetivo en el proyecto «{{name}}» (id {{id}}): {{goal}}. Divide el objetivo en hitos alcanzables, propón tareas concretas para cada hito y estima dependencias entre ellas. NO crees nada todavía: presenta la propuesta en markdown. Responde en español.", Some("save")),
@@ -372,7 +372,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "copy".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Hybrid),
-                trigger: event("note.created"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: event("note.created") }],
                 conditions: Some(Condition::Metric {
                     metric: "note_matches".into(),
                     op: CompareOp::Gt,
@@ -413,7 +413,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "search".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Ai),
-                trigger: event("project.created"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: event("project.created") }],
                 conditions: Some(Condition::EventField {
                     field: "name".into(),
                     op: CompareOp::Contains,
@@ -452,7 +452,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "alarm-clock".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Local),
-                trigger: daily("09:00"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: daily("09:00") }],
                 conditions: None,
                 flow: Some(flow("n", vec![
                     notify("n", "Tu recordatorio diario", "Pasa por NEXUS y revisa tus tareas de hoy. Puedes editar este mensaje en el constructor.", Some("end")),
@@ -482,7 +482,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "target".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Local),
-                trigger: event("task.created"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: event("task.created") }],
                 conditions: Some(Condition::Or {
                     conditions: vec![
                         Condition::EventField { field: "priority".into(), op: CompareOp::Eq, value: json!("urgent") },
@@ -521,7 +521,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "lightbulb".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Ai),
-                trigger: event("task.created"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: event("task.created") }],
                 conditions: None,
                 flow: Some(flow("sum", vec![
                     agent("sum", "knowledge", "Resume en UNA sola línea la tarea «{{title}}» (descripción: {{description}}) y di cuál es el siguiente paso concreto para empezarla. No crees nada, solo responde. En español.", Some("save")),
@@ -552,7 +552,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "rocket".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Hybrid),
-                trigger: event("project.created"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: event("project.created") }],
                 conditions: None,
                 flow: Some(flow("doc", vec![
                     save_note("doc", "Estructura: {{name}}", "Proyecto «{{name}}» creado.\n\nObjetivo: {{goal}}\n\nDescripción: {{description}}\n\nSiguiente paso sugerido: define las primeras 3 tareas del proyecto.", &["estructura"], Some("tip")),
@@ -584,7 +584,7 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "book-open".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Local),
-                trigger: daily("21:00"),
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: daily("21:00") }],
                 conditions: None,
                 flow: Some(flow("report", vec![
                     step("report", StepKind::Action {
@@ -619,14 +619,14 @@ pub fn all() -> Vec<AutomationTemplate> {
                 icon: "calendar-check".into(),
                 enabled: Some(false),
                 mode: Some(AutomationMode::Hybrid),
-                trigger: Trigger::Schedule {
+                triggers: vec![TriggerEntry { id: "t0".into(), trigger: Trigger::Schedule {
                     spec: ScheduleSpec {
                         kind: "weekly".into(),
                         time: Some("19:00".into()),
                         weekdays: vec!["sun".into()],
                         ..Default::default()
                     },
-                },
+                } }],
                 conditions: None,
                 flow: Some(flow("report", vec![
                     step("report", StepKind::Action {

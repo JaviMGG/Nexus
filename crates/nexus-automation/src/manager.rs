@@ -2,7 +2,7 @@
 //! AutomationScheduler persistente y cola de ejecuciones con control de
 //! concurrencia, deduplicación y recuperación tras reinicio.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,7 +11,7 @@ use nexus_ai::ProviderRegistry;
 use nexus_core::{
     new_id, now, now_str, AppEvent, Automation, AutomationApprovalStatus, AutomationExecution,
     AutomationMode, AutomationOverview, CreateAutomation, ExecutionFilter, ExecutionPolicy,
-    ExecutionStatus, NexusError, Result, Trigger, UpdateAutomation,
+    ExecutionStatus, NexusError, Result, Trigger, TriggerEntry, UpdateAutomation,
 };
 use nexus_db::repos;
 use nexus_services::Services;
@@ -27,6 +27,36 @@ const MAX_CONCURRENT: usize = 3;
 
 struct ExecHandle {
     token: CancellationToken,
+}
+
+fn normalize_trigger_ids(triggers: &mut [TriggerEntry]) {
+    for entry in triggers {
+        if entry.id.is_empty() {
+            entry.id = new_id();
+        }
+    }
+}
+
+pub(crate) fn manual_entry(a: &Automation) -> TriggerEntry {
+    a.triggers.first().cloned().unwrap_or(TriggerEntry {
+        id: "manual".into(),
+        trigger: Trigger::Event {
+            event: "manual".into(),
+            filter: json!({}),
+        },
+    })
+}
+
+fn write_next(a: &mut Automation, id: &str, next: Option<chrono::DateTime<chrono::Utc>>) {
+    match next {
+        Some(dt) => {
+            a.next_runs.insert(id.to_string(), dt.to_rfc3339());
+        }
+        None => {
+            a.next_runs.remove(id);
+        }
+    }
+    a.next_run_at = a.next_runs.values().min().cloned();
 }
 
 pub struct AutomationManager {
@@ -88,28 +118,26 @@ impl AutomationManager {
         self.agents.list().into_iter().map(|a| a.id).collect()
     }
 
-    fn validate_all(
-        &self,
-        trigger: &Trigger,
-        conditions: Option<&nexus_core::Condition>,
-        flow: &nexus_core::AutomationFlow,
-    ) -> Result<()> {
-        flow::validate_trigger(trigger)?;
-        if let Some(c) = conditions {
-            flow::validate_condition(c, 0)?;
-        }
-        flow::validate(flow, &self.known_agents())
-    }
-
-    pub async fn create(&self, data: CreateAutomation) -> Result<Automation> {
+    pub async fn create(&self, mut data: CreateAutomation) -> Result<Automation> {
         let name = data.name.trim().to_string();
         if name.is_empty() || name.len() > 120 {
             return Err(NexusError::validation(
                 "el nombre debe tener entre 1 y 120 caracteres",
             ));
         }
+        normalize_trigger_ids(&mut data.triggers);
+        if data.enabled.unwrap_or(false) && data.triggers.is_empty() {
+            return Err(NexusError::validation(
+                "añade al menos un disparador antes de activar",
+            ));
+        }
         let flow = data.flow.unwrap_or_default();
-        self.validate_all(&data.trigger, data.conditions.as_ref(), &flow)?;
+        flow::validate_all(
+            &data.triggers,
+            data.conditions.as_ref(),
+            &flow,
+            &self.known_agents(),
+        )?;
         let mut automation = Automation {
             id: new_id(),
             name,
@@ -121,7 +149,8 @@ impl AutomationManager {
             },
             enabled: data.enabled.unwrap_or(false),
             mode: data.mode.unwrap_or_default(),
-            trigger: data.trigger,
+            triggers: data.triggers,
+            next_runs: HashMap::new(),
             conditions: data.conditions,
             flow,
             permissions: data.permissions.unwrap_or_default(),
@@ -152,15 +181,26 @@ impl AutomationManager {
         Ok(created)
     }
 
-    pub async fn update(&self, id: &str, patch: UpdateAutomation) -> Result<Automation> {
+    pub async fn update(&self, id: &str, mut patch: UpdateAutomation) -> Result<Automation> {
         let current = self.get(id).await?;
-        let trigger = patch.trigger.clone().unwrap_or(current.trigger.clone());
+        if let Some(triggers) = &mut patch.triggers {
+            normalize_trigger_ids(triggers);
+        }
+        let triggers = patch
+            .triggers
+            .clone()
+            .unwrap_or_else(|| current.triggers.clone());
+        if patch.enabled.unwrap_or(current.enabled) && triggers.is_empty() {
+            return Err(NexusError::validation(
+                "añade al menos un disparador antes de activar",
+            ));
+        }
         let conditions = match &patch.conditions {
             Some(c) => c.clone(),
             None => current.conditions.clone(),
         };
         let flow = patch.flow.clone().unwrap_or(current.flow.clone());
-        self.validate_all(&trigger, conditions.as_ref(), &flow)?;
+        flow::validate_all(&triggers, conditions.as_ref(), &flow, &self.known_agents())?;
         if let Some(name) = &patch.name {
             if name.trim().is_empty() || name.len() > 120 {
                 return Err(NexusError::validation(
@@ -206,22 +246,28 @@ impl AutomationManager {
 
     async fn refresh_next_run(&self, a: &mut Automation) -> Result<()> {
         if !a.enabled {
+            a.next_runs.clear();
             a.next_run_at = None;
             return Ok(());
         }
-        if let Trigger::Schedule { spec } = &a.trigger {
-            let settings = self.services.settings.get_app().await.unwrap_or_default();
-            let last = a.last_run_at.as_deref().and_then(parse_ts);
-            let next = triggers::next_occurrence(
-                spec,
-                now(),
-                last,
-                settings.automations.timezone.as_deref(),
-            )?;
-            a.next_run_at = next.map(|d| d.to_rfc3339());
-        } else {
-            a.next_run_at = None;
+        let settings = self.services.settings.get_app().await.unwrap_or_default();
+        let tz = settings.automations.timezone.as_deref();
+        let now_utc = now();
+        let last = a.last_run_at.as_deref().and_then(parse_ts);
+        let ids: HashSet<&str> = a.triggers.iter().map(|e| e.id.as_str()).collect();
+        a.next_runs.retain(|id, _| ids.contains(id.as_str()));
+        for entry in a.triggers.clone() {
+            match &entry.trigger {
+                Trigger::Schedule { spec } => {
+                    let next = triggers::next_occurrence(spec, now_utc, last, tz)?;
+                    write_next(a, &entry.id, next);
+                }
+                Trigger::Event { .. } => {
+                    a.next_runs.remove(&entry.id);
+                }
+            }
         }
+        a.next_run_at = a.next_runs.values().min().cloned();
         Ok(())
     }
 
@@ -246,8 +292,16 @@ impl AutomationManager {
         } else {
             "manual".to_string()
         };
+        let entry = manual_entry(&automation);
         let execution = self
-            .spawn_execution(automation, detail, json!({"manual": true}), test_run, 0)
+            .spawn_execution(
+                automation,
+                &entry,
+                detail,
+                json!({"manual": true}),
+                test_run,
+                0,
+            )
             .await?;
         Ok(execution)
     }
@@ -255,19 +309,21 @@ impl AutomationManager {
     fn spawn_execution(
         self: &Arc<Self>,
         automation: Automation,
+        entry: &TriggerEntry,
         trigger_detail: String,
         event_data: Value,
         test_run: bool,
         chain_depth: i64,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AutomationExecution>> + Send + '_>>
     {
+        let entry = entry.clone();
         Box::pin(async move {
             // Registro síncrono del handle para que cancel sea posible al instante.
             let execution = AutomationExecution {
                 id: new_id(),
                 automation_id: automation.id.clone(),
                 automation_name: automation.name.clone(),
-                trigger_kind: automation.trigger.kind(),
+                trigger_kind: entry.trigger.kind(),
                 trigger_detail,
                 mode: automation.mode,
                 status: ExecutionStatus::Pending,
@@ -301,6 +357,7 @@ impl AutomationManager {
                     .run_registered(
                         &exec_id,
                         automation,
+                        entry,
                         detail,
                         event_data,
                         test_run,
@@ -323,6 +380,7 @@ impl AutomationManager {
         self: &Arc<Self>,
         execution_id: &str,
         automation: Automation,
+        entry: TriggerEntry,
         trigger_detail: String,
         event_data: Value,
         test_run: bool,
@@ -371,7 +429,14 @@ impl AutomationManager {
                         tokio::spawn(async move {
                             tokio::time::sleep(Duration::from_secs(5)).await;
                             let _ = manager
-                                .spawn_execution(retried, detail, json!({}), false, chain_depth)
+                                .spawn_execution(
+                                    retried,
+                                    &entry,
+                                    detail,
+                                    json!({}),
+                                    false,
+                                    chain_depth,
+                                )
                                 .await;
                         });
                     }
@@ -541,91 +606,112 @@ impl AutomationManager {
         let automations = self.list(true).await?;
         let now_utc = now();
         for mut a in automations {
-            match &a.trigger {
-                Trigger::Schedule { spec } => {
-                    let Some(next) = a.next_run_at.as_deref().and_then(parse_ts) else {
-                        self.refresh_next_run(&mut a).await?;
-                        repos::automations::write(&self.services.db, &a).await?;
-                        continue;
-                    };
-                    if next > now_utc {
-                        continue;
-                    }
-                    // Política de recuperación: si el disparo quedó muy atrás
-                    // (NEXUS cerrado), se descarta y se reprograma; nunca se
-                    // ejecutan en tromba todas las ocurrencias perdidas.
-                    let stale = now_utc - next > chrono::Duration::minutes(10);
-                    let mark = triggers::schedule_mark(next);
-                    let fresh =
-                        repos::automations::try_mark_fired(&self.services.db, &a.id, &mark).await?;
-                    let new_next = triggers::next_occurrence(
-                        spec,
-                        now_utc,
-                        Some(next),
-                        settings.automations.timezone.as_deref(),
-                    )?;
-                    a.next_run_at = new_next.map(|d| d.to_rfc3339());
-                    if stale || !fresh {
-                        repos::automations::write(&self.services.db, &a).await?;
-                        continue;
-                    }
-                    if self.check_policy(&a, false).await.is_err() {
-                        repos::automations::write(&self.services.db, &a).await?;
-                        continue;
-                    }
-                    a.last_run_at = Some(next.to_rfc3339());
-                    repos::automations::write(&self.services.db, &a).await?;
-                    let manager = self.clone();
-                    let auto = a.clone();
-                    tokio::spawn(async move {
-                        let _ = manager
-                            .spawn_execution(
-                                auto,
-                                format!("programada {mark}"),
-                                json!({"scheduled_at": mark}),
-                                false,
-                                0,
-                            )
-                            .await;
-                    });
-                }
-                Trigger::Event { event, .. } if event == "task.overdue" => {
-                    // Detector determinista de vencimientos (sin IA).
-                    let today = now_utc.format("%Y-%m-%d").to_string();
-                    let tasks = self
-                        .services
-                        .tasks
-                        .list(nexus_core::TaskFilter {
-                            due_before: Some(today.clone()),
-                            ..Default::default()
-                        })
-                        .await?;
-                    for t in tasks {
-                        if !matches!(
-                            t.status,
-                            nexus_core::TaskStatus::Todo | nexus_core::TaskStatus::InProgress
-                        ) {
+            for entry in a.triggers.clone() {
+                match &entry.trigger {
+                    Trigger::Schedule { spec } => {
+                        let legacy = if entry.id == "t0" {
+                            a.next_run_at.as_deref().and_then(parse_ts)
+                        } else {
+                            None
+                        };
+                        let Some(next) = a
+                            .next_runs
+                            .get(&entry.id)
+                            .and_then(|s| parse_ts(s))
+                            .or(legacy)
+                        else {
+                            let new_next = triggers::next_occurrence(
+                                spec,
+                                now_utc,
+                                a.last_run_at.as_deref().and_then(parse_ts),
+                                settings.automations.timezone.as_deref(),
+                            )?;
+                            write_next(&mut a, &entry.id, new_next);
+                            repos::automations::write(&self.services.db, &a).await?;
+                            continue;
+                        };
+                        if next > now_utc {
                             continue;
                         }
-                        let mark = format!("overdue:{}:{today}", t.id);
-                        if !repos::automations::try_mark_fired(&self.services.db, &a.id, &mark)
-                            .await?
-                        {
+                        // Política de recuperación: si el disparo quedó muy atrás
+                        // (NEXUS cerrado), se descarta y se reprograma; nunca se
+                        // ejecutan en tromba todas las ocurrencias perdidas.
+                        let stale = now_utc - next > chrono::Duration::minutes(10);
+                        let mark =
+                            format!("schedule:{}:{}", entry.id, triggers::schedule_mark(next));
+                        let fresh =
+                            repos::automations::try_mark_fired(&self.services.db, &a.id, &mark)
+                                .await?;
+                        let new_next = triggers::next_occurrence(
+                            spec,
+                            now_utc,
+                            Some(next),
+                            settings.automations.timezone.as_deref(),
+                        )?;
+                        write_next(&mut a, &entry.id, new_next);
+                        if stale || !fresh {
+                            repos::automations::write(&self.services.db, &a).await?;
                             continue;
                         }
                         if self.check_policy(&a, false).await.is_err() {
+                            repos::automations::write(&self.services.db, &a).await?;
                             continue;
                         }
-                        let data = serde_json::to_value(&t).unwrap_or(json!({}));
-                        let _ = self.events.send(AppEvent::DomainEvent {
-                            event: "task.overdue".into(),
-                            entity: "task".into(),
-                            entity_id: Some(t.id.clone()),
-                            data,
+                        a.last_run_at = Some(next.to_rfc3339());
+                        repos::automations::write(&self.services.db, &a).await?;
+                        let manager = self.clone();
+                        let auto = a.clone();
+                        tokio::spawn(async move {
+                            let _ = manager
+                                .spawn_execution(
+                                    auto,
+                                    &entry,
+                                    format!("programada {mark}"),
+                                    json!({"scheduled_at": mark}),
+                                    false,
+                                    0,
+                                )
+                                .await;
                         });
                     }
+                    Trigger::Event { event, .. } if event == "task.overdue" => {
+                        // Detector determinista de vencimientos (sin IA).
+                        let today = now_utc.format("%Y-%m-%d").to_string();
+                        let tasks = self
+                            .services
+                            .tasks
+                            .list(nexus_core::TaskFilter {
+                                due_before: Some(today.clone()),
+                                ..Default::default()
+                            })
+                            .await?;
+                        for t in tasks {
+                            if !matches!(
+                                t.status,
+                                nexus_core::TaskStatus::Todo | nexus_core::TaskStatus::InProgress
+                            ) {
+                                continue;
+                            }
+                            let mark = format!("overdue:{}:{today}", t.id);
+                            if !repos::automations::try_mark_fired(&self.services.db, &a.id, &mark)
+                                .await?
+                            {
+                                continue;
+                            }
+                            if self.check_policy(&a, false).await.is_err() {
+                                continue;
+                            }
+                            let data = serde_json::to_value(&t).unwrap_or(json!({}));
+                            let _ = self.events.send(AppEvent::DomainEvent {
+                                event: "task.overdue".into(),
+                                entity: "task".into(),
+                                entity_id: Some(t.id.clone()),
+                                data,
+                            });
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
         // Poda de marcas antiguales y autorizaciones caducadas (>48 h).
@@ -720,33 +806,37 @@ impl AutomationManager {
         }
         let automations = self.list(true).await?;
         for a in automations {
-            if !triggers::event_matches(&a.trigger, event, data) {
-                continue;
-            }
-            // Deduplicación por evento+entidad en ventana corta.
-            let dedup_key = format!("evt:{event}:{}", entity_id.unwrap_or("-"));
-            if a.limits.cooldown_minutes == 0 {
-                let recent = repos::automations::count_active_for(&self.services.db, &a.id).await?;
-                if recent > 0 && a.policy != ExecutionPolicy::Always {
+            for entry in &a.triggers {
+                if !triggers::event_matches(&entry.trigger, event, data) {
                     continue;
                 }
+                // Deduplicación por disparador + evento + entidad en ventana corta.
+                let dedup_key = format!("evt:{event}:{}:{}", entry.id, entity_id.unwrap_or("-"));
+                if a.limits.cooldown_minutes == 0 {
+                    let recent =
+                        repos::automations::count_active_for(&self.services.db, &a.id).await?;
+                    if recent > 0 && a.policy != ExecutionPolicy::Always {
+                        continue;
+                    }
+                }
+                if self.check_policy(&a, false).await.is_err() {
+                    continue;
+                }
+                let mark = format!("{dedup_key}:{}", now().format("%Y-%m-%dT%H:%M"));
+                if !repos::automations::try_mark_fired(&self.services.db, &a.id, &mark).await? {
+                    continue;
+                }
+                let manager = self.clone();
+                let auto = a.clone();
+                let entry = entry.clone();
+                let detail = format!("evento {event}");
+                let payload = data.clone();
+                tokio::spawn(async move {
+                    let _ = manager
+                        .spawn_execution(auto, &entry, detail, payload, false, 0)
+                        .await;
+                });
             }
-            if self.check_policy(&a, false).await.is_err() {
-                continue;
-            }
-            let mark = format!("{dedup_key}:{}", now().format("%Y-%m-%dT%H:%M"));
-            if !repos::automations::try_mark_fired(&self.services.db, &a.id, &mark).await? {
-                continue;
-            }
-            let manager = self.clone();
-            let auto = a.clone();
-            let detail = format!("evento {event}");
-            let payload = data.clone();
-            tokio::spawn(async move {
-                let _ = manager
-                    .spawn_execution(auto, detail, payload, false, 0)
-                    .await;
-            });
         }
         Ok(())
     }

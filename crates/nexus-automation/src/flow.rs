@@ -3,13 +3,27 @@
 
 use std::collections::{HashMap, HashSet};
 
-use nexus_core::{AutomationFlow, Condition, NexusError, Result, StepKind};
+use nexus_core::{AutomationFlow, Condition, NexusError, Result, StepKind, TriggerEntry};
 
 use crate::actions;
-use crate::triggers;
 
 pub const MAX_STEPS: usize = 100;
 pub const MAX_CONDITION_DEPTH: usize = 8;
+
+pub fn validate_all(
+    triggers: &[TriggerEntry],
+    conditions: Option<&Condition>,
+    flow: &AutomationFlow,
+    known_agents: &[String],
+) -> Result<()> {
+    for entry in triggers {
+        validate_trigger(&entry.trigger)?;
+    }
+    if let Some(c) = conditions {
+        validate_condition(c, 0)?;
+    }
+    validate(flow, known_agents)
+}
 
 pub fn validate(flow: &AutomationFlow, known_agents: &[String]) -> Result<()> {
     if flow.steps.len() > MAX_STEPS {
@@ -42,10 +56,22 @@ pub fn validate(flow: &AutomationFlow, known_agents: &[String]) -> Result<()> {
                     step.next.as_deref(),
                 ]
             }
-            StepKind::Action { action, .. } => {
+            StepKind::Action {
+                action, params, ..
+            } => {
                 if !actions::is_known(action) {
                     return Err(NexusError::validation(format!(
                         "acción desconocida: {action}"
+                    )));
+                }
+                if let Some(validation_error) =
+                    crate::validation::validate_action_params(action, params)
+                        .into_iter()
+                        .next()
+                {
+                    return Err(NexusError::validation(format!(
+                        "paso {}: {}",
+                        step.id, validation_error.message
                     )));
                 }
                 vec![step.next.as_deref()]
@@ -177,23 +203,16 @@ pub fn validate_condition(cond: &Condition, depth: usize) -> Result<()> {
 }
 
 pub fn validate_trigger(trigger: &nexus_core::Trigger) -> Result<()> {
-    match trigger {
-        nexus_core::Trigger::Schedule { spec } => triggers::validate_schedule(spec),
-        nexus_core::Trigger::Event { event, .. } => {
-            if !triggers::is_known_event(event) {
-                return Err(NexusError::validation(format!(
-                    "evento desconocido: {event}"
-                )));
-            }
-            Ok(())
-        }
+    match crate::validation::validate_trigger(trigger).into_iter().next() {
+        Some(error) => Err(NexusError::validation(error.message)),
+        None => Ok(()),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nexus_core::{AutomationFlow, CompareOp, Condition, FlowStep, StepKind};
+    use nexus_core::{AutomationFlow, CompareOp, Condition, FlowStep, ScheduleSpec, StepKind};
 
     fn agents() -> Vec<String> {
         vec!["planner".into(), "executor".into()]
@@ -320,5 +339,104 @@ mod tests {
             ],
         };
         assert!(validate(&flow, &agents()).is_ok());
+    }
+
+    #[test]
+    fn validates_schedule_formats() {
+        let good = nexus_core::Trigger::Schedule {
+            spec: ScheduleSpec {
+                kind: "once".into(),
+                time: Some("08:30".into()),
+                date: Some("2026-12-31".into()),
+                timezone: Some("Europe/Madrid".into()),
+                ..ScheduleSpec::default()
+            },
+        };
+        assert!(validate_trigger(&good).is_ok());
+
+        let bad = nexus_core::Trigger::Schedule {
+            spec: ScheduleSpec {
+                kind: "once".into(),
+                time: Some("8:30".into()),
+                date: Some("31/12/2026".into()),
+                timezone: Some("Madrid/Europe".into()),
+                ..ScheduleSpec::default()
+            },
+        };
+        let errors = crate::validation::validate_trigger(&bad);
+        assert!(errors.iter().any(|e| e.field == "spec.time"));
+        assert!(errors.iter().any(|e| e.field == "spec.date"));
+        assert!(errors.iter().any(|e| e.field == "spec.timezone"));
+    }
+
+    #[test]
+    fn validates_event_filter_formats() {
+        use nexus_core::Trigger;
+
+        let good = Trigger::Event {
+            event: "task.created".into(),
+            filter: serde_json::json!({
+                "title": "Revisar",
+                "status": "todo",
+                "due_date": "2026-12-31",
+                "position": 1,
+                "tags": ["nexus"]
+            }),
+        };
+        assert!(crate::validation::validate_trigger(&good).is_empty());
+
+        let bad = Trigger::Event {
+            event: "task.created".into(),
+            filter: serde_json::json!({
+                "due_date": "31/12/2026",
+                "status": "unknown",
+                "position": "1",
+                "ghost": "x"
+            }),
+        };
+        let errors = crate::validation::validate_trigger(&bad);
+        assert!(errors.iter().any(|e| e.field == "filter.due_date"));
+        assert!(errors.iter().any(|e| e.field == "filter.status"));
+        assert!(errors.iter().any(|e| e.field == "filter.position"));
+        assert!(errors.iter().any(|e| e.field == "filter.ghost"));
+    }
+
+    #[test]
+    fn validates_action_due_date_format() {
+        fn action_flow(params: serde_json::Value) -> AutomationFlow {
+            AutomationFlow {
+                version: 1,
+                entry: Some("a".into()),
+                positions: Default::default(),
+                steps: vec![step(
+                    "a",
+                    StepKind::Action {
+                        action: "tasks.create".into(),
+                        params,
+                        approval: None,
+                    },
+                    None,
+                )],
+            }
+        }
+
+        let valid = action_flow(serde_json::json!({
+            "title": "Revisar",
+            "due_date": "2026-12-31"
+        }));
+        assert!(validate(&valid, &agents()).is_ok());
+
+        let template = action_flow(serde_json::json!({
+            "title": "Revisar",
+            "due_date": "{{due_date}}"
+        }));
+        assert!(validate(&template, &agents()).is_ok());
+
+        let invalid = action_flow(serde_json::json!({
+            "title": "Revisar",
+            "due_date": "31/12/2026"
+        }));
+        let error = validate(&invalid, &agents()).unwrap_err();
+        assert!(error.to_string().contains("fecha límite inválida"));
     }
 }

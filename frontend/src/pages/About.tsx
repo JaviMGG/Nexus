@@ -12,6 +12,7 @@ import {
   HelpCircle,
   Info,
   Keyboard,
+  Mail,
   PenTool,
   RefreshCw,
   ShieldCheck,
@@ -25,7 +26,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { invoke, ApiError, apiUrl } from "@/lib/api";
-import type { AiStatus, SettingsPayload } from "@/lib/types";
+import type { AiStatus, MailAccount, SettingsPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,7 @@ function Feature({ icon: Icon, title, children, to }: { icon: LucideIcon; title:
 
 function Diagnostics() {
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => invoke<SettingsPayload>("settings.get") });
+  const mailAccounts = useQuery({ queryKey: ["mail-accounts"], queryFn: () => invoke<MailAccount[]>("mail.accounts.list") });
   const health = useQuery({
     queryKey: ["about-health"],
     queryFn: async () => {
@@ -120,8 +122,10 @@ function Diagnostics() {
 
   return (
     <div className="space-y-2">
-      {settings.isLoading || health.isLoading ? (
+      {settings.isLoading || health.isLoading || mailAccounts.isLoading ? (
         <>
+          <Skeleton className="h-14 rounded-lg" />
+          <Skeleton className="h-14 rounded-lg" />
           <Skeleton className="h-14 rounded-lg" />
           <Skeleton className="h-14 rounded-lg" />
           <Skeleton className="h-14 rounded-lg" />
@@ -166,7 +170,17 @@ function Diagnostics() {
             detail={
               settings.data?.app.automations.enabled === false
                 ? "Pausadas: ninguna automatización se ejecutará hasta que se reactiven."
-                  : `En marcha. Límite diario de IA: ${(settings.data?.app.automations.daily_token_limit ?? 0).toLocaleString("es-ES")} tokens. ${settings.data?.app.automations.run_in_background ? "Aunque cierres la ventana, NEXUS sigue trabajando desde el iconito junto al reloj y sus avisos llegan como notificaciones del sistema." : "Solo trabajan con la ventana abierta. Si quieres que sigan al cerrar, activa «Que NEXUS siga trabajando aunque cierres la ventana» en Ajustes → Automatizaciones."}`
+                : `En marcha, con disparadores temporales y de evento (incluido «Correo recibido»). Límite diario de IA: ${(settings.data?.app.automations.daily_token_limit ?? 0).toLocaleString("es-ES")} tokens. ${settings.data?.app.automations.run_in_background ? "Aunque cierres la ventana, NEXUS sigue trabajando desde el iconito junto al reloj y sus avisos llegan como notificaciones del sistema." : "Solo trabajan con la ventana abierta. Si quieres que sigan al cerrar, activa «Que NEXUS siga trabajando aunque cierres la ventana» en Ajustes → Automatizaciones."}`
+            }
+          />
+          <Row
+            ok={(mailAccounts.data?.length ?? 0) > 0}
+            warn={(mailAccounts.data?.length ?? 0) === 0}
+            label={`Correo (${mailAccounts.data?.length ?? 0} cuentas)`}
+            detail={
+              (mailAccounts.data?.length ?? 0) === 0
+                ? "No hay cuentas conectadas. Añade una cuenta IMAP/SMTP con contraseña de aplicación en Ajustes → Correo para usar el disparador «Correo recibido» y las acciones enviar/responder."
+                : `Conectadas: ${mailAccounts.data?.map((a) => a.name).join(", ")}. El motor comprueba los buzones en segundo plano y guarda contraseñas y estado IMAP solo en este equipo.`
             }
           />
           <Row
@@ -217,10 +231,13 @@ export function AboutPage() {
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
           NEXUS es tu <b className="text-foreground">segundo cerebro</b>: reúne tareas, proyectos, calendario y notas
           en un solo sitio, añade herramientas potentes — <b className="text-foreground">Canvas</b> (pizarra infinita),{" "}
-          <b className="text-foreground">Bases de datos</b> personalizadas y <b className="text-foreground">Comidas</b>{" "}
-          (recetas, menús y compra) — y puede trabajar por ti gracias a agentes de IA y automatizaciones.
-          Todo vive en <b className="text-foreground">tu equipo</b>: no hay servidores externos, no hay cuentas y tus
-          datos no salen de tu ordenador. La IA es opcional: sin ella, NEXUS sigue funcionando al 100% en modo manual.
+          <b className="text-foreground">Bases de datos</b> personalizadas, <b className="text-foreground">Comidas</b>{" "}
+          (recetas, menús y compra) y <b className="text-foreground">Correo</b> (IMAP/SMTP) — y puede trabajar por ti
+          gracias a agentes de IA y al <b className="text-foreground">Centro de Automatizaciones</b>: varios
+          disparadores, nodos visuales y reglas que respetan tus permisos.
+          Todo vive en <b className="text-foreground">tu equipo</b>: no hay servidores de NEXUS ni cuentas que crear,
+          y tus datos no salen del ordenador salvo cuando tú conectas un proveedor de IA o una cuenta de correo.
+          La IA es opcional: sin ella, NEXUS sigue funcionando al 100% en modo manual.
         </p>
       </header>
 
@@ -230,7 +247,7 @@ export function AboutPage() {
             Organiza pendientes con prioridades, fechas, etiquetas y subtareas; agrúpalas en proyectos con progreso
             automático. Vista lista o tablero Kanban.
           </Feature>
-          <Feature icon={BookOpen} title="Conocimiento" to="/knowledge">
+          <Feature icon={BookOpen} title="Notas" to="/knowledge">
             Notas, ideas, documentos y enlaces con editor Markdown y búsqueda instantánea de texto completo.
           </Feature>
           <Feature icon={Database} title="Calendario" to="/calendar">
@@ -245,8 +262,14 @@ export function AboutPage() {
             investigador, ejecutor) que usan herramientas reales sobre tus datos.
           </Feature>
           <Feature icon={Workflow} title="Automatizaciones" to="/automations">
-            Configura una vez y olvídate: «cada mañana prepárame el resumen del día», «avísame si una tarea vence»,
-            «al crear un proyecto, propón fases». Constructor visual de nodos, plantillas y modos Local / IA / Híbrido.
+            Varios disparadores por flujo: horarios (diario, semanal, mensual, intervalo, una vez) y eventos como
+            tarea creada/completada/vencida, proyecto, nota, idea o agente terminado. Lienzo de nodos con acciones,
+            agente IA, IF/ELSE, espera, notificación y fin; plantillas y modos Local / IA / Híbrido.
+          </Feature>
+          <Feature icon={Mail} title="Correo conectado" to="/settings">
+            Añade cuentas IMAP/SMTP con contraseña de aplicación. El disparador «Correo recibido» filtra por cuenta,
+            carpeta, remitente o asunto, y los nodos pueden enviar o responder correos usando plantillas con
+            {" {{campos}} "} del evento. Contraseñas y estado de buzón se guardan solo en tu equipo.
           </Feature>
           <Feature icon={ShieldCheck} title="Control total" to="/activity">
             Cada cambio queda auditado y se puede deshacer. Las acciones sensibles piden tu autorización explícita.
@@ -302,7 +325,31 @@ export function AboutPage() {
             «Que NEXUS siga trabajando aunque cierres la ventana» (Ajustes → Automatizaciones); 3) su <b>modo</b>: si es IA o
             Híbrido y no hay proveedor, los pasos inteligentes se omiten o quedan pendientes (el modo Local nunca
             necesita IA); 4) el <b>disparador</b>: los eventos ocurren al crear/completar cosas, y los horarios usan la
-            zona horaria configurada; 5) el <b>historial</b>: cada intento queda registrado con su error exacto.
+             zona horaria configurada; 5) el <b>historial</b>: cada intento queda registrado con su error exacto.
+          </Faq>
+          <Faq q="¿Qué disparadores y nodos puedo usar en una automatización?">
+            Puedes añadir varios disparadores a la vez: <b>Programación temporal</b> (diaria, semanal, mensual,
+            intervalo o una vez) y eventos de dominio — tarea creada/completada/modificada/vencida, proyecto creado
+            o con estado cambiado, nota o idea guardada, objetivo creado, agente terminado y <b>Correo recibido</b>.
+            Todos llevan al mismo punto de entrada del flujo. En el lienzo tienes una sola paleta <b>Nodos</b>: el
+            desplegable de triggers y los nodos <b>Acción</b>, <b>Agente IA</b>, <b>IF/ELSE</b>, <b>Espera</b>,
+            <b>Notificación</b> y <b>Fin</b>. Para quitar un disparador, elimina su nodo: sus conexiones no se guardan
+            como aristas borrables.
+          </Faq>
+          <Faq q="¿Cómo conecto mi correo y qué puedo hacer con él?">
+            Ve a <Link to="/settings" className="text-primary underline-offset-2 hover:underline">Ajustes → Correo</Link>
+            y añade servidor IMAP/SMTP, usuario y <b>contraseña de aplicación</b> (no OAuth). Después puedes usar el
+            disparador <b>Correo recibido</b> con filtros exactos — cuenta, carpeta, asunto, fecha — o contiene para
+            remitente/asunto, y las acciones <b>enviar</b> o <b>responder</b>. Los mensajes se comprueban
+            periódicamente en segundo plano; la contraseña se guarda como secreto local y nunca se muestra ni se
+            exporta. Para Gmail u Outlook usa una contraseña de aplicación específica, no la contraseña web.
+          </Faq>
+          <Faq q="Escribí una fecha límite y me sale un error de formato">
+            Los campos de fecha de los nodos (por ejemplo <b>Fecha límite</b> en crear tarea) aceptan{" "}
+            <b>YYYY-MM-DD</b> —p. ej. <code className="rounded bg-muted px-1 text-[11px]">2026-12-31</code>— o
+            RFC3339 con hora y zona. Si escribes <code className="rounded bg-muted px-1 text-[11px]">31/12/2026</code>,
+            verás el error en rojo y la automatización no se guardará. Si usas {"{{due_date}}"} para tomar la fecha
+            del evento, se permite: se validará al ejecutarse con el dato real.
           </Faq>
           <Faq q="Una automatización se quedó «Esperando autorización»">
             Es una acción sensible (borrar, encadenar, o marcada como «pedir autorización») esperando tu decisión.
@@ -312,8 +359,9 @@ export function AboutPage() {
           </Faq>
           <Faq q="Creé una tarea/nota y la automatización no saltó">
             Los disparadores de evento reaccionan a las operaciones hechas desde la app (crear tarea, completar,
-            crear proyecto, guardar idea…). Si la automatización se activó <i>después</i> del evento, no se ejecuta
-            retroactivamente. Puedes lanzarla manualmente con <b>Ejecutar</b> o <b>Probar</b> (la prueba no modifica datos).
+            crear proyecto, guardar idea, recibir correo…). Si la automatización se activó <i>después</i> del evento,
+            no se ejecuta retroactivamente. Puedes lanzarla manualmente con <b>Ejecutar</b> o <b>Probar</b> (la prueba
+            no modifica datos).
           </Faq>
           <Faq q="¿Dónde están mis datos? ¿Se suben a algún sitio?">
             Todo se guarda en un archivo SQLite <b>en tu equipo</b> (con permisos restringidos). Nada se envía a
@@ -419,13 +467,13 @@ export function AboutPage() {
       <Section icon={Keyboard} title="Atajos y detalles útiles" id="atajos">
         <ul className="list-disc space-y-1 pl-4">
           <li><b className="text-foreground">Ctrl/⌘ + K</b>: captura rápida desde cualquier pantalla.</li>
-          <li><b className="text-foreground">Supr</b> con una flecha seleccionada en el constructor: desconecta dos nodos.</li>
-          <li>Arrastra bloques al lienzo de automatizaciones y conéctalos de izquierda a derecha; las condiciones tienen salida «sí» y «no».</li>
+          <li><b className="text-foreground">Supr</b> con una flecha seleccionada en el constructor: desconecta dos nodos de flujo. Las líneas de los disparadores no se pueden borrar: elimina el nodo del disparador para quitarlo.</li>
+          <li>En el constructor de automatizaciones, tens <b>Nodos</b> con un desplegable de triggers y botones para Acción, Agente IA, IF/ELSE, Espera, Notificación y Fin. Conecta los nodos de izquierda a derecha; las condiciones tienen salida «sí» y «no».</li>
           <li><b className="text-foreground">Canvas</b>: Ctrl+Z / Ctrl+Y deshacer y rehacer · Ctrl+C/V copiar y pegar · Ctrl+D duplicar ·
             Ctrl+G agrupar (Ctrl+Shift+G desagrupar) · Supr eliminar · doble clic para escribir · Shift+clic o arrastrar para selección múltiple.</li>
           <li><b className="text-foreground">Comidas</b>: arrastra recetas de la tira lateral a cualquier día; el selector de raciones recalcula los ingredientes al momento.</li>
           <li>El selector de paleta del sidebar cambia el tema al instante (18 paletas × claro/oscuro, incluidas Vice City y Blackwall).</li>
-          <li>Las búsquedas de Conocimiento usan el índice de texto completo de SQLite: encuentran palabras dentro de tus notas al momento.</li>
+          <li>Las búsquedas de Notas usan el índice de texto completo de SQLite: encuentran palabras dentro de tus notas al momento.</li>
         </ul>
       </Section>
 
@@ -440,8 +488,14 @@ export function AboutPage() {
           de terminal ni código arbitrario.
         </p>
         <p>
+          El módulo de correo usa IMAP/SMTP con contraseña de aplicación (no OAuth) y comprueba los buzones
+          periódicamente desde el motor de automatizaciones. Las credenciales se guardan como secretos locales y las
+          acciones de correo se tratan como sensibles.
+        </p>
+        <p>
           Límites conocidos de esta versión: el segundo plano usa la bandeja del sistema (no un servicio del
-          sistema operativo que arranque solo con el equipo); la búsqueda web del agente investigador requiere un
+           sistema operativo que arranque solo con el equipo); el correo se consulta cada ~30 segundos (no es push
+           instantáneo) y necesita contraseña de aplicación; la búsqueda web del agente investigador requiere un
           proveedor de búsqueda configurado (si no, lo dice explícitamente y no inventa fuentes); no hay sesiones
           de concentración todavía; la app es monousuario y local. En las herramientas: el deshacer del canvas no
           persiste entre sesiones; las fórmulas de bases de datos no se pueden usar como filtro (sí para ordenar);

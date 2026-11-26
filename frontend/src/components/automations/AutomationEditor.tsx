@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, ChevronDown, FlaskConical, Loader2, Save, SlidersHorizontal, Zap } from "lucide-react";
+import { ArrowLeft, ChevronDown, FlaskConical, Loader2, Save, SlidersHorizontal } from "lucide-react";
 import { invoke, ApiError } from "@/lib/api";
 import type {
   Automation,
@@ -11,11 +11,10 @@ import type {
   CreateAutomation,
   ExecutionPolicy,
   ModeInfo,
-  ScheduleSpec,
-  Trigger,
+  TriggerEntry,
   TriggerSpec,
 } from "@/lib/types";
-import { AUTOMATION_MODE_DESCRIPTION, AUTOMATION_MODE_LABEL, WEEKDAY_LABEL, cn } from "@/lib/utils";
+import { AUTOMATION_MODE_DESCRIPTION, AUTOMATION_MODE_LABEL, cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,16 +25,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { FlowCanvas } from "./FlowCanvas";
 import { AutomationIcon, ModeBadge } from "./shared";
 
-const DEFAULT_SCHEDULE: ScheduleSpec = {
-  kind: "daily",
-  time: "08:00",
-  weekdays: ["mon"],
-  day_of_month: 1,
-  interval_minutes: 60,
-  date: null,
-  timezone: null,
-};
-
 function emptyDraft(): CreateAutomation {
   return {
     name: "",
@@ -43,7 +32,7 @@ function emptyDraft(): CreateAutomation {
     icon: "zap",
     enabled: false,
     mode: "local",
-    trigger: { type: "schedule", spec: { ...DEFAULT_SCHEDULE } },
+    triggers: [],
     conditions: null,
     flow: { version: 1, steps: [], entry: null },
     permissions: { write: "auto" },
@@ -56,9 +45,9 @@ function fromAutomation(a: Automation): CreateAutomation {
     name: a.name,
     description: a.description,
     icon: a.icon,
-    enabled: a.enabled,
+    enabled: a.enabled && (a.triggers?.length ?? 0) > 0,
     mode: a.mode,
-    trigger: a.trigger,
+    triggers: a.triggers ?? [],
     conditions: a.conditions,
     flow: a.flow,
     permissions: a.permissions,
@@ -83,7 +72,7 @@ export function AutomationEditor({
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [showLimits, setShowLimits] = useState(false);
 
-  const triggers = useQuery({
+  const triggerCatalog = useQuery({
     queryKey: ["automation-triggers"],
     queryFn: () => invoke<TriggerSpec[]>("automations.triggers"),
     staleTime: Infinity,
@@ -93,11 +82,16 @@ export function AutomationEditor({
     queryFn: () => invoke<ModeInfo>("automations.mode_info", { mode: draft.mode }),
   });
 
+  const payload = (): CreateAutomation => ({
+    ...draft,
+    enabled: draft.triggers.length > 0 ? (draft.enabled ?? false) : false,
+  });
+
   const save = useMutation({
     mutationFn: () =>
       automation
-        ? invoke<Automation>("automations.update", { id: automation.id, data: draft })
-        : invoke<Automation>("automations.create", { data: draft }),
+        ? invoke<Automation>("automations.update", { id: automation.id, data: payload() })
+        : invoke<Automation>("automations.create", { data: payload() }),
     onSuccess: (a) => {
       toast.success(automation ? "Automatización actualizada" : `Automatización «${a.name}» creada`);
       qc.invalidateQueries({ queryKey: ["automations"] });
@@ -111,11 +105,11 @@ export function AutomationEditor({
     mutationFn: async () => {
       let id = automation?.id;
       if (!id) {
-        const created = await invoke<Automation>("automations.create", { data: { ...draft, enabled: false } });
+        const created = await invoke<Automation>("automations.create", { data: { ...payload(), enabled: false } });
         id = created.id;
         qc.invalidateQueries({ queryKey: ["automations"] });
       } else {
-        await invoke("automations.update", { id, data: draft });
+        await invoke("automations.update", { id, data: { ...payload(), enabled: false } });
       }
       return invoke("automations.run", { id, test: true });
     },
@@ -127,12 +121,18 @@ export function AutomationEditor({
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "No se pudo ejecutar la prueba"),
   });
 
-  const setTrigger = (t: Trigger) => setDraft((d) => ({ ...d, trigger: t }));
-  const spec = draft.trigger.type === "schedule" ? draft.trigger.spec : DEFAULT_SCHEDULE;
-  const setSpec = (patch: Partial<ScheduleSpec>) =>
-    setTrigger({ type: "schedule", spec: { ...spec, ...patch } });
+  const firstSchedule = draft.triggers.find((t) => t.trigger.type === "schedule");
+  const scheduleTimezone = firstSchedule && firstSchedule.trigger.type === "schedule"
+    ? firstSchedule.trigger.spec.timezone ?? ""
+    : "";
+  const setTimezone = (value: string) =>
+    setDraft((d) => ({
+      ...d,
+      triggers: d.triggers.map((t) => t.trigger.type === "schedule"
+        ? { ...t, trigger: { ...t.trigger, spec: { ...t.trigger.spec, timezone: value || null } } }
+        : t),
+    }));
 
-  const eventTriggers = (triggers.data ?? []).filter((t) => t.kind === "event");
   const limits = draft.limits ?? {};
   const setLimit = (key: string, value: number) =>
     setDraft((d) => ({ ...d, limits: { ...(d.limits ?? {}), [key]: value } }));
@@ -155,7 +155,7 @@ export function AutomationEditor({
 
   return (
     <div className="space-y-3 animate-fade-in">
-      {/* Barra de herramientas (waybar): identidad + acciones / disparador */}
+      {/* Barra de herramientas (waybar): identidad + acciones */}
       <div className="rounded-xl border border-border bg-card shadow-sm">
         <div className="flex flex-wrap items-center gap-2 px-3 py-2">
           <Button variant="ghost" size="sm" className="shrink-0" onClick={onClose}>
@@ -185,7 +185,11 @@ export function AutomationEditor({
           <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5" title="Activar al guardar">
               <span className="text-[11px] text-muted-foreground">Activa</span>
-              <Switch checked={draft.enabled ?? false} onCheckedChange={(v) => setDraft((d) => ({ ...d, enabled: v }))} />
+              <Switch
+                checked={draft.enabled ?? false}
+                onCheckedChange={(v) => setDraft((d) => ({ ...d, enabled: v }))}
+                disabled={draft.triggers.length === 0}
+              />
             </div>
             <Button
               variant={optionsOpen ? "secondary" : "outline"}
@@ -224,76 +228,15 @@ export function AutomationEditor({
               {info.requires_ai ? (info.ai_available ? "IA disponible" : "IA no disponible") : "Offline"}
             </Badge>
           )}
-          <div className="mx-1 h-6 w-px shrink-0 bg-border" />
-          <Zap className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <Select
-            value={draft.trigger.type === "schedule" ? `schedule:${spec.kind}` : `event:${draft.trigger.event}`}
-            onValueChange={(v) => {
-              if (v.startsWith("schedule:")) {
-                setTrigger({ type: "schedule", spec: { ...spec, kind: v.slice(9) as ScheduleSpec["kind"] } });
-              } else {
-                setTrigger({ type: "event", event: v.slice(6), filter: {} });
-              }
-            }}
-          >
-            <SelectTrigger className="h-8 w-[210px] shrink-0 text-xs" aria-label="Disparador"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="schedule:daily">Todos los días a una hora</SelectItem>
-              <SelectItem value="schedule:weekly">Días de la semana concretos</SelectItem>
-              <SelectItem value="schedule:monthly">Una vez al mes</SelectItem>
-              <SelectItem value="schedule:interval">Cada cierto intervalo</SelectItem>
-              <SelectItem value="schedule:once">Una vez en una fecha</SelectItem>
-              {eventTriggers.map((t) => (
-                <SelectItem key={t.id} value={`event:${t.id}`}>{t.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {draft.trigger.type === "schedule" && (
-            <>
-              {spec.kind !== "interval" && (
-                <Input type="time" className="h-8 w-[104px] shrink-0 text-xs" value={spec.time ?? "08:00"} onChange={(e) => setSpec({ time: e.target.value })} aria-label="Hora" />
-              )}
-              {spec.kind === "weekly" && (
-                <div className="flex shrink-0 gap-0.5">
-                  {Object.entries(WEEKDAY_LABEL).map(([id, label]) => {
-                    const active = spec.weekdays.includes(id);
-                    return (
-                      <button
-                        key={id}
-                        onClick={() => setSpec({ weekdays: active ? spec.weekdays.filter((d) => d !== id) : [...spec.weekdays, id] })}
-                        className={cn(
-                          "h-7 w-7 rounded-md border text-[11px] font-medium transition-colors cursor-pointer",
-                          active ? "border-primary bg-primary/15 text-primary" : "border-border text-muted-foreground hover:bg-muted",
-                        )}
-                        title={id}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {spec.kind === "monthly" && (
-                <Input type="number" min={1} max={31} className="h-8 w-16 shrink-0 text-xs" value={spec.day_of_month ?? 1} onChange={(e) => setSpec({ day_of_month: Number(e.target.value) })} aria-label="Día del mes" title="Día del mes" />
-              )}
-              {spec.kind === "interval" && (
-                <div className="flex shrink-0 items-center gap-1">
-                  <Input type="number" min={5} className="h-8 w-16 text-xs" value={spec.interval_minutes ?? 60} onChange={(e) => setSpec({ interval_minutes: Number(e.target.value) })} aria-label="Intervalo en minutos" />
-                  <span className="text-[11px] text-muted-foreground">min</span>
-                </div>
-              )}
-              {spec.kind === "once" && (
-                <Input type="date" className="h-8 w-[140px] shrink-0 text-xs" value={spec.date ?? ""} onChange={(e) => setSpec({ date: e.target.value })} aria-label="Fecha" />
-              )}
-            </>
-          )}
-          {draft.trigger.type === "event" && (
-            <span className="text-[11px] text-muted-foreground">
-              El payload del evento llega a los pasos como {"{{title}}"}, {"{{id}}"}, etc.
-            </span>
-          )}
+          <span className="text-[11px] text-muted-foreground">
+            Añade disparadores desde la barra del lienzo y configúralos al seleccionar su nodo.
+          </span>
         </div>
+        {draft.triggers.length === 0 && (
+          <div className="border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
+            Borrador manual: añade un disparador para activarlo
+          </div>
+        )}
       </div>
 
       {/* Panel de opciones desplegable */}
@@ -304,8 +247,8 @@ export function AutomationEditor({
             <Input className="h-8 text-xs" value={draft.description ?? ""} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} placeholder="Para qué sirve" />
           </div>
           <div className="space-y-1">
-            <Label className="text-[11px]">Zona horaria (IANA, vacío = local)</Label>
-            <Input className="h-8 text-xs" placeholder="Europe/Madrid" value={spec.timezone ?? ""} onChange={(e) => setSpec({ timezone: e.target.value || null })} disabled={draft.trigger.type !== "schedule"} />
+            <Label className="text-[11px]">Zona horaria de los disparadores temporales (IANA)</Label>
+            <Input className="h-8 text-xs" placeholder="Europe/Madrid" value={scheduleTimezone} onChange={(e) => setTimezone(e.target.value)} disabled={!firstSchedule} />
           </div>
           <div className="space-y-1">
             <Label className="text-[11px]">Ejecuciones simultáneas</Label>
@@ -390,8 +333,14 @@ export function AutomationEditor({
       {/* Lienzo a ancho completo */}
       <FlowCanvas
         flow={draft.flow ?? { version: 1, steps: [], entry: null }}
-        trigger={draft.trigger}
+        triggers={draft.triggers}
+        triggerSpecs={triggerCatalog.data ?? []}
         onChange={(f: AutomationFlow) => setDraft((d) => ({ ...d, flow: f }))}
+        onTriggersChange={(triggers: TriggerEntry[]) => setDraft((d) => ({
+          ...d,
+          triggers,
+          enabled: triggers.length > 0 ? d.enabled : false,
+        }))}
         height={640}
       />
     </div>

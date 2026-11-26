@@ -30,7 +30,7 @@ export function AiStatusPill({ compact = false }: { compact?: boolean }) {
           onClick={() => navigate("/settings")}
           className={cn(
             "flex items-center gap-2 rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer",
-            compact && "px-1.5",
+            compact && "h-7 w-7 justify-center rounded-md p-0",
           )}
         >
           <span className={cn("relative flex h-2 w-2")}>

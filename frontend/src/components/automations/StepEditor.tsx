@@ -46,6 +46,23 @@ export function valueToStr(v: unknown): string {
   return JSON.stringify(v ?? "");
 }
 
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+const RFC3339_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function isValidDueDate(raw: string): boolean {
+  if (YMD_RE.test(raw)) {
+    const parsed = new Date(`${raw}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === raw;
+  }
+  return RFC3339_RE.test(raw) && !Number.isNaN(Date.parse(raw));
+}
+
+function dueDateError(raw: string): string | null {
+  const value = raw.trim();
+  if (!value || (value.includes("{{") && value.includes("}}"))) return null;
+  return isValidDueDate(value) ? null : "Usa YYYY-MM-DD o RFC3339";
+}
+
 export function useCatalogs() {
   const actions = useQuery({ queryKey: ["automation-actions"], queryFn: () => invoke<ActionSpec[]>("automations.actions"), staleTime: Infinity });
   const agents = useQuery({ queryKey: ["agents"], queryFn: () => invoke<AgentDef[]>("agents.list"), staleTime: Infinity });
@@ -267,21 +284,24 @@ const PARAM_FIELDS: Record<string, { key: string; label: string; kind?: "textare
     { key: "title", label: "Título", placeholder: "admite {{title}}" },
     { key: "description", label: "Descripción", kind: "textarea" },
     { key: "priority", label: "Prioridad (low/medium/high/urgent)" },
-    { key: "due_date", label: "Fecha límite (YYYY-MM-DD)" },
+    { key: "due_date", label: "Fecha límite (YYYY-MM-DD o RFC3339)" },
     { key: "tags", label: "Etiquetas (JSON array)" },
   ],
   "tasks.create_subtask": [
     { key: "title", label: "Título" },
     { key: "task_id", label: "Tarea padre (id o \"task\")", ref: "task" },
+    { key: "due_date", label: "Fecha límite (YYYY-MM-DD o RFC3339)" },
   ],
   "projects.add_task": [
     { key: "title", label: "Título" },
     { key: "project_id", label: "Proyecto (id o \"project\")", ref: "project" },
+    { key: "due_date", label: "Fecha límite (YYYY-MM-DD o RFC3339)" },
   ],
   "tasks.update": [
     { key: "task_id", label: "Tarea (id o \"task\")", ref: "task" },
     { key: "title", label: "Nuevo título" },
     { key: "description", label: "Nueva descripción", kind: "textarea" },
+    { key: "due_date", label: "Fecha límite (YYYY-MM-DD o RFC3339)" },
   ],
   "tasks.complete": [{ key: "task_id", label: "Tarea (id o \"task\")", ref: "task" }],
   "tasks.delete": [{ key: "task_id", label: "Tarea (id o \"task\")", ref: "task" }],
@@ -345,6 +365,17 @@ const PARAM_FIELDS: Record<string, { key: string; label: string; kind?: "textare
     { key: "project_id", label: "Proyecto (id o \"project\")", ref: "project" },
   ],
   "notes.delete": [{ key: "note_id", label: "Nota (id o \"note\")", ref: "note" }],
+  "mail.send": [
+    { key: "account", label: "Cuenta (id/nombre o {{account_id}})" },
+    { key: "to", label: "Destinatario" },
+    { key: "subject", label: "Asunto", placeholder: "admite {{campo}}" },
+    { key: "body", label: "Cuerpo", kind: "textarea", placeholder: "admite {{campo}}" },
+  ],
+  "mail.reply": [
+    { key: "account", label: "Cuenta (id/nombre o {{account_id}})" },
+    { key: "body", label: "Cuerpo", kind: "textarea", placeholder: "admite {{campo}}" },
+    { key: "in_reply_to", label: "Responder a (message-id)", placeholder: "{{message_id}}" },
+  ],
   "system.run_automation": [{ key: "automation_id", label: "Automatización (solo modo local)", ref: "automation" }],
 };
 
@@ -373,34 +404,39 @@ function ActionParamsEditor({
   };
   return (
     <div className="space-y-1.5">
-      {fields.map((f) => (
-        <div key={f.key} className="space-y-0.5">
-          <Label className="text-[11px] text-muted-foreground">{f.label}</Label>
-          {f.kind === "textarea" ? (
-            <Textarea
-              className="min-h-[48px] text-xs"
-              value={valueToStr(params[f.key] ?? "")}
-              placeholder={f.placeholder}
-              onChange={(e) => set(f.key, e.target.value, f.kind)}
-            />
-          ) : f.ref ? (
-            <RefInput
-              kind={f.ref}
-              value={valueToStr(params[f.key] ?? "")}
-              placeholder={f.placeholder}
-              onChange={(v) => set(f.key, v)}
-            />
-          ) : (
-            <Input
-              className="h-8 text-xs"
-              type={f.kind === "number" ? "number" : "text"}
-              value={valueToStr(params[f.key] ?? "")}
-              placeholder={f.placeholder}
-              onChange={(e) => set(f.key, e.target.value, f.kind)}
-            />
-          )}
-        </div>
-      ))}
+      {fields.map((f) => {
+        const value = valueToStr(params[f.key] ?? "");
+        const error = f.key === "due_date" ? dueDateError(value) : null;
+        return (
+          <div key={f.key} className="space-y-0.5">
+            <Label className="text-[11px] text-muted-foreground">{f.label}</Label>
+            {f.kind === "textarea" ? (
+              <Textarea
+                className="min-h-[48px] text-xs"
+                value={value}
+                placeholder={f.placeholder}
+                onChange={(e) => set(f.key, e.target.value, f.kind)}
+              />
+            ) : f.ref ? (
+              <RefInput
+                kind={f.ref}
+                value={value}
+                placeholder={f.placeholder}
+                onChange={(v) => set(f.key, v)}
+              />
+            ) : (
+              <Input
+                className={cn("h-8 text-xs", error && "border-destructive")}
+                type={f.kind === "number" ? "number" : "text"}
+                value={value}
+                placeholder={f.placeholder}
+                onChange={(e) => set(f.key, e.target.value, f.kind)}
+              />
+            )}
+            {error && <p className="text-[10px] text-destructive">{error}</p>}
+          </div>
+        );
+      })}
       {fields.length === 0 && (
         <p className="text-[11px] text-muted-foreground">Esta acción no necesita parámetros.</p>
       )}

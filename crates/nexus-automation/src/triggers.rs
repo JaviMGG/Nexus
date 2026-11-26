@@ -5,6 +5,8 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use nexus_core::{NexusError, Result, ScheduleSpec, Trigger, TriggerKind, TriggerSpec};
 
+use crate::trigger_fields;
+
 /// Eventos de dominio que el motor sabe escuchar. Se emiten como
 /// `AppEvent::DomainEvent` desde el dispatch y desde los propios agentes.
 pub const EVENT_CATALOG: &[(&str, &str, &str)] = &[
@@ -58,6 +60,11 @@ pub const EVENT_CATALOG: &[(&str, &str, &str)] = &[
         "Ejecución de agente terminada",
         "Cuando un run de agente finaliza",
     ),
+    (
+        "mail.received",
+        "Correo recibido",
+        "Cuando llega un correo a una cuenta conectada",
+    ),
 ];
 
 pub fn catalog() -> Vec<TriggerSpec> {
@@ -68,6 +75,7 @@ pub fn catalog() -> Vec<TriggerSpec> {
             name: name.to_string(),
             description: desc.to_string(),
             kind: TriggerKind::Event,
+            fields: trigger_fields::fields_for(id),
         })
         .collect();
     specs.insert(
@@ -77,6 +85,7 @@ pub fn catalog() -> Vec<TriggerSpec> {
             name: "Programación temporal".into(),
             description: "A una hora, a diario, semanal, mensual, por intervalo o una vez".into(),
             kind: TriggerKind::Schedule,
+            fields: Vec::new(),
         },
     );
     specs
@@ -310,7 +319,20 @@ pub fn schedule_mark(when: DateTime<Utc>) -> String {
     when.format("%Y-%m-%dT%H:%M").to_string()
 }
 
+fn payload_value<'a>(data: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
+    if let Some(v) = data.get(key) {
+        return Some(v);
+    }
+    match key {
+        "account" => data.get("account_id"),
+        "account_id" => data.get("account"),
+        _ => None,
+    }
+}
+
 /// Coincidencia de un evento de dominio con el trigger (incluye filtro plano).
+/// Las claves terminadas en `~` comparan "contiene" sin distinguir mayúsculas;
+/// el resto exige igualdad exacta.
 pub fn event_matches(trigger: &Trigger, event: &str, data: &serde_json::Value) -> bool {
     match trigger {
         Trigger::Event {
@@ -321,7 +343,24 @@ pub fn event_matches(trigger: &Trigger, event: &str, data: &serde_json::Value) -
                 return false;
             }
             match filter {
-                serde_json::Value::Object(map) => map.iter().all(|(k, v)| data.get(k) == Some(v)),
+                serde_json::Value::Object(map) => map.iter().all(|(k, expected)| {
+                    if let Some(key) = k.strip_suffix('~') {
+                        let Some(actual) = payload_value(data, key) else {
+                            return false;
+                        };
+                        let needle = match expected {
+                            serde_json::Value::String(s) => s.clone(),
+                            other => other.to_string(),
+                        };
+                        let haystack = actual
+                            .as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(|| actual.to_string());
+                        haystack.to_lowercase().contains(&needle.to_lowercase())
+                    } else {
+                        payload_value(data, k) == Some(expected)
+                    }
+                }),
                 _ => true,
             }
         }
@@ -456,6 +495,26 @@ mod tests {
             &serde_json::json!({"status": "active"})
         ));
         assert!(!event_matches(&t, "task.created", &serde_json::json!({})));
+    }
+
+    #[test]
+    fn mail_received_filters_support_contains_and_account_alias() {
+        assert!(is_known_event("mail.received"));
+        let t = Trigger::Event {
+            event: "mail.received".into(),
+            filter: serde_json::json!({"account": "principal", "subject~": "INVITACIÓN"}),
+        };
+        let payload = serde_json::json!({
+            "account_id": "principal",
+            "from": "jefa@nexus.dev",
+            "subject": "Invitación a la reunión",
+        });
+        assert!(event_matches(&t, "mail.received", &payload));
+        assert!(!event_matches(
+            &t,
+            "mail.received",
+            &serde_json::json!({"account_id": "principal", "subject": "Otro asunto"})
+        ));
     }
 
     #[test]

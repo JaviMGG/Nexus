@@ -1,7 +1,8 @@
 use nexus_core::{
-    now_str, Automation, AutomationApproval, AutomationApprovalStatus, AutomationExecution,
+    new_id, now_str, Automation, AutomationApproval, AutomationApprovalStatus, AutomationExecution,
     AutomationFlow, AutomationMode, Condition, ExecutionFilter, ExecutionPolicy, ExecutionStatus,
-    Id, NexusError, Result, StepLog, StepStatus, Trigger, TriggerKind, UpdateAutomation,
+    Id, NexusError, Result, StepLog, StepStatus, Trigger, TriggerEntry, TriggerKind,
+    UpdateAutomation,
 };
 use sqlx::{QueryBuilder, Row, Sqlite};
 
@@ -20,6 +21,7 @@ struct AutomationRow {
     enabled: i64,
     mode: String,
     trigger_json: String,
+    next_runs_json: String,
     conditions_json: Option<String>,
     flow_json: String,
     permissions_json: String,
@@ -38,12 +40,50 @@ fn parse_json<T: serde::de::DeserializeOwned>(s: &str) -> Result<T> {
     serde_json::from_str(s).map_err(|e| NexusError::Internal(format!("json corrupto: {e}")))
 }
 
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum StoredTriggers {
+    Entries(Vec<TriggerEntry>),
+    Legacy(Trigger),
+}
+
+fn normalize_trigger_ids(triggers: &mut [TriggerEntry]) {
+    for entry in triggers {
+        if entry.id.is_empty() {
+            entry.id = new_id();
+        }
+    }
+}
+
+fn normalized_triggers(triggers: &[TriggerEntry]) -> Vec<TriggerEntry> {
+    let mut result = triggers.to_vec();
+    normalize_trigger_ids(&mut result);
+    result
+}
+
 impl TryFrom<AutomationRow> for Automation {
     type Error = NexusError;
 
     fn try_from(r: AutomationRow) -> Result<Self> {
-        let trigger: Trigger = serde_json::from_str(&r.trigger_json)
-            .map_err(|e| NexusError::Internal(format!("trigger corrupto en {}: {e}", r.id)))?;
+        let triggers = match serde_json::from_str::<StoredTriggers>(&r.trigger_json)
+            .map_err(|e| NexusError::Internal(format!("trigger corrupto en {}: {e}", r.id)))?
+        {
+            StoredTriggers::Entries(v) => v,
+            StoredTriggers::Legacy(trigger) => vec![TriggerEntry {
+                id: "t0".into(),
+                trigger,
+            }],
+        };
+        let mut next_runs: std::collections::HashMap<String, String> =
+            parse_json(&r.next_runs_json)?;
+        if next_runs.is_empty() {
+            if let (Some(next), Some(entry)) = (
+                r.next_run_at.as_ref(),
+                triggers.iter().find(|e| e.id == "t0"),
+            ) {
+                next_runs.insert(entry.id.clone(), next.clone());
+            }
+        }
         let conditions = match &r.conditions_json {
             Some(s) => Some(
                 serde_json::from_str::<Condition>(s)
@@ -60,7 +100,8 @@ impl TryFrom<AutomationRow> for Automation {
             icon: r.icon,
             enabled: r.enabled != 0,
             mode: AutomationMode::parse(&r.mode).unwrap_or_default(),
-            trigger,
+            triggers,
+            next_runs,
             conditions,
             flow,
             permissions: parse_json(&r.permissions_json)?,
@@ -82,9 +123,10 @@ fn json_string<T: serde::Serialize>(v: &T) -> Result<String> {
 }
 
 pub async fn create(db: &Db, a: &Automation) -> Result<Automation> {
+    let triggers = normalized_triggers(&a.triggers);
     sqlx::query(
-        "INSERT INTO automations (id, name, description, icon, enabled, mode, trigger_json, conditions_json, flow_json, permissions_json, limits_json, policy, template_id, last_run_at, next_run_at, run_count, last_status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO automations (id, name, description, icon, enabled, mode, trigger_json, next_runs_json, conditions_json, flow_json, permissions_json, limits_json, policy, template_id, last_run_at, next_run_at, run_count, last_status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&a.id)
     .bind(&a.name)
@@ -92,7 +134,8 @@ pub async fn create(db: &Db, a: &Automation) -> Result<Automation> {
     .bind(&a.icon)
     .bind(a.enabled as i64)
     .bind(a.mode.as_str())
-    .bind(json_string(&a.trigger)?)
+    .bind(json_string(&triggers)?)
+    .bind(json_string(&a.next_runs)?)
     .bind(a.conditions.as_ref().map(json_string).transpose()?)
     .bind(json_string(&a.flow)?)
     .bind(json_string(&a.permissions)?)
@@ -151,8 +194,9 @@ pub async fn update(db: &Db, id: &str, patch: UpdateAutomation) -> Result<Automa
     if let Some(v) = patch.mode {
         a.mode = v;
     }
-    if let Some(v) = patch.trigger {
-        a.trigger = v;
+    if let Some(mut v) = patch.triggers {
+        normalize_trigger_ids(&mut v);
+        a.triggers = v;
     }
     if let Some(v) = patch.conditions {
         a.conditions = v;
@@ -175,15 +219,17 @@ pub async fn update(db: &Db, id: &str, patch: UpdateAutomation) -> Result<Automa
 }
 
 pub async fn write(db: &Db, a: &Automation) -> Result<()> {
+    let triggers = normalized_triggers(&a.triggers);
     sqlx::query(
-        "UPDATE automations SET name=?, description=?, icon=?, enabled=?, mode=?, trigger_json=?, conditions_json=?, flow_json=?, permissions_json=?, limits_json=?, policy=?, template_id=?, last_run_at=?, next_run_at=?, run_count=?, last_status=?, updated_at=? WHERE id=?",
+        "UPDATE automations SET name=?, description=?, icon=?, enabled=?, mode=?, trigger_json=?, next_runs_json=?, conditions_json=?, flow_json=?, permissions_json=?, limits_json=?, policy=?, template_id=?, last_run_at=?, next_run_at=?, run_count=?, last_status=?, updated_at=? WHERE id=?",
     )
     .bind(&a.name)
     .bind(&a.description)
     .bind(&a.icon)
     .bind(a.enabled as i64)
     .bind(a.mode.as_str())
-    .bind(json_string(&a.trigger)?)
+    .bind(json_string(&triggers)?)
+    .bind(json_string(&a.next_runs)?)
     .bind(a.conditions.as_ref().map(json_string).transpose()?)
     .bind(json_string(&a.flow)?)
     .bind(json_string(&a.permissions)?)

@@ -29,6 +29,8 @@ import type {
   AutomationTemplate,
   ExecutionFilter,
   Id,
+  TriggerEntry,
+  TriggerSpec,
 } from "@/lib/types";
 import { AGENT_LABEL, cn, formatDateTime, relativeTime, triggerLabel } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -260,7 +262,11 @@ function MyAutomationsTab({ onEdit, onOpenExecution }: { onEdit: (a: Automation 
         <Button size="sm" onClick={() => onEdit(null)}><Plus /> Nueva automatización</Button>
       </div>
       <div className="space-y-2">
-        {items.map((a) => (
+        {items.map((a) => {
+          const triggerSummary = (a.triggers ?? []).length > 0
+            ? a.triggers.map((t) => triggerLabel(t.trigger)).join(" · ")
+            : "Manual";
+          return (
           <div key={a.id} className={cn("rounded-xl border bg-card p-4 shadow-sm transition-opacity", !a.enabled && "opacity-70")}>
             <div className="flex flex-wrap items-start gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15">
@@ -275,7 +281,7 @@ function MyAutomationsTab({ onEdit, onOpenExecution }: { onEdit: (a: Automation 
                 </div>
                 {a.description && <p className="mt-0.5 text-xs text-muted-foreground">{a.description}</p>}
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                  <span>{triggerLabel(a.trigger)}</span>
+                  <span>{triggerSummary}</span>
                   <span>· {a.run_count} ejecuciones</span>
                   {a.last_run_at && <span>· última: {relativeTime(a.last_run_at)}</span>}
                   {a.enabled && a.next_run_at && <span>· próxima: {formatDateTime(a.next_run_at)}</span>}
@@ -303,7 +309,8 @@ function MyAutomationsTab({ onEdit, onOpenExecution }: { onEdit: (a: Automation 
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <Dialog open={deleteTarget != null} onOpenChange={(o) => !o && setDeleteTarget(null)}>
@@ -695,18 +702,32 @@ function BuilderCanvas() {
     queryKey: ["automations"],
     queryFn: () => invoke<Automation[]>("automations.list"),
   });
+  const triggerCatalog = useQuery({
+    queryKey: ["automation-triggers"],
+    queryFn: () => invoke<TriggerSpec[]>("automations.triggers"),
+    staleTime: Infinity,
+  });
   const items = list.data ?? [];
   const [selectedId, setSelectedId] = useState<Id | null>(null);
   const selected = items.find((a) => a.id === selectedId) ?? items[0] ?? null;
 
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["automations"] });
+    qc.invalidateQueries({ queryKey: ["automation-overview"] });
+  };
+
   const saveFlow = useMutation({
     mutationFn: ({ id, flow }: { id: Id; flow: Automation["flow"] }) =>
       invoke("automations.update", { id, data: { flow } }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["automations"] });
-      qc.invalidateQueries({ queryKey: ["automation-overview"] });
-    },
+    onSuccess: invalidate,
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "No se pudo guardar el flujo"),
+  });
+
+  const saveTriggers = useMutation({
+    mutationFn: ({ id, triggers }: { id: Id; triggers: TriggerEntry[] }) =>
+      invoke("automations.update", { id, data: { triggers } }),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "No se pudo guardar los disparadores"),
   });
 
   if (list.isLoading) return <Skeleton className="h-64 rounded-lg" />;
@@ -730,7 +751,7 @@ function BuilderCanvas() {
           </SelectContent>
         </Select>
         {selected && <ModeBadge mode={selected.mode} />}
-        {saveFlow.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+        {(saveFlow.isPending || saveTriggers.isPending) && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
         {selected && (
           <span className="text-[11px] text-muted-foreground">Los cambios del lienzo se guardan solos.</span>
         )}
@@ -739,8 +760,10 @@ function BuilderCanvas() {
         <FlowCanvas
           key={selected.id}
           flow={selected.flow}
-          trigger={selected.trigger}
+          triggers={selected.triggers ?? []}
+          triggerSpecs={triggerCatalog.data ?? []}
           onChange={(flow) => saveFlow.mutate({ id: selected.id, flow })}
+          onTriggersChange={(triggers) => saveTriggers.mutate({ id: selected.id, triggers })}
           height={560}
         />
       )}

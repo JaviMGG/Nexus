@@ -12,6 +12,7 @@ pub mod databases;
 pub mod events;
 pub mod files;
 pub mod inbox;
+pub mod mail;
 pub mod meals;
 pub mod notes;
 pub mod projects;
@@ -20,6 +21,8 @@ pub mod tasks;
 pub mod validate;
 
 use nexus_db::Db;
+
+pub use mail::{MailAccount, MailMessage};
 
 #[derive(Clone)]
 pub struct Services {
@@ -38,6 +41,7 @@ pub struct Services {
     pub databases: databases::DatabaseService,
     pub meals: meals::MealService,
     pub files: files::FileService,
+    pub mail: mail::MailService,
 }
 
 impl Services {
@@ -47,6 +51,7 @@ impl Services {
 
     pub fn with_data_dir(db: Db, data_dir: &std::path::Path) -> Self {
         Self {
+            mail: mail::MailService::new(db.clone()),
             tasks: tasks::TaskService { db: db.clone() },
             projects: projects::ProjectService { db: db.clone() },
             notes: notes::NoteService { db: db.clone() },

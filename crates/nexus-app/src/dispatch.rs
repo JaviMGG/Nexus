@@ -4,6 +4,7 @@ use nexus_core::{
     UpdateEvent, UpdateNote, UpdateProject, UpdateTask,
 };
 use nexus_db::repos;
+use nexus_services::MailAccount;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
@@ -507,9 +508,16 @@ pub async fn dispatch(ctx: &AppContext, command: &str, payload: Value) -> Result
             .collect::<Vec<_>>()),
         "automations.validate" => {
             let flow: nexus_core::AutomationFlow = arg(&payload, "flow")?;
+            let triggers: Vec<nexus_core::TriggerEntry> =
+                opt_arg(&payload, "triggers")?.unwrap_or_default();
             let agents: Vec<String> = ctx.agents.list().into_iter().map(|a| a.id).collect();
-            nexus_automation::flow::validate(&flow, &agents)?;
+            nexus_automation::flow::validate_all(&triggers, None, &flow, &agents)?;
             ok(json!({"valid": true}))
+        }
+        "automations.validate_trigger" => {
+            let trigger: nexus_core::Trigger = arg(&payload, "trigger")?;
+            let errors = nexus_automation::validation::validate_trigger(&trigger);
+            ok(json!({"valid": errors.is_empty(), "errors": errors}))
         }
         "automations.preview_condition" => {
             let condition: nexus_core::Condition = arg(&payload, "condition")?;
@@ -606,6 +614,29 @@ pub async fn dispatch(ctx: &AppContext, command: &str, payload: Value) -> Result
             });
             ok(json!({"message": message}))
         }
+        "mail.accounts.list" => ok(s.mail.list_accounts().await?),
+        "mail.accounts.save" => {
+            let mut account: MailAccount = arg(&payload, "account")?;
+            if account.id.trim().is_empty() {
+                account.id = nexus_core::new_id();
+            }
+            let password: Option<String> = opt_arg(&payload, "password")?;
+            s.mail.save_account(account, password).await?;
+            ctx.data_changed("mail");
+            ok(s.mail.list_accounts().await?)
+        }
+        "mail.accounts.delete" => {
+            s.mail
+                .delete_account(&arg::<String>(&payload, "id")?)
+                .await?;
+            ctx.data_changed("mail");
+            ok(json!({"deleted": true}))
+        }
+        "mail.accounts.test" => {
+            let id = arg::<String>(&payload, "id")?;
+            ok(s.mail.test_account(&id).await?)
+        }
+
         "ai.status" => ok(ctx.providers.status().await),
 
         // ------------------------------------------------------------- backup

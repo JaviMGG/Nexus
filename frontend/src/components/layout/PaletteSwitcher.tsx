@@ -24,7 +24,7 @@ export function PaletteSwitcher({ compact = false }: { compact?: boolean }) {
             <button
               className={cn(
                 "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-foreground transition-colors cursor-pointer outline-none",
-                compact && "px-1.5",
+                compact && "h-7 w-7 justify-center rounded-md p-0",
               )}
             >
               <span className="flex h-4 w-4 items-center justify-center">

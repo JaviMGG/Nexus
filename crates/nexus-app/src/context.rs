@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use nexus_agents::{AgentRegistry, ExecutionEngine};
 use nexus_ai::ProviderRegistry;
@@ -10,6 +11,7 @@ use nexus_services::Services;
 use nexus_tools::ToolRegistry;
 use tokio::sync::broadcast;
 
+#[derive(Clone)]
 pub struct AppContext {
     pub services: Services,
     pub providers: Arc<ProviderRegistry>,
@@ -51,7 +53,7 @@ impl AppContext {
         automation.recover().await?;
         engine.set_automation(automation.clone());
         automation.start();
-        Ok(Self {
+        let ctx = Self {
             services,
             providers,
             tools,
@@ -60,7 +62,33 @@ impl AppContext {
             automation,
             events,
             data_dir,
-        })
+        };
+        let watcher = Arc::new(ctx.clone());
+        let watcher_task = Arc::clone(&watcher);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                match watcher_task.services.mail.fetch_new().await {
+                    Ok(messages) => {
+                        for message in messages {
+                            match serde_json::to_value(&message) {
+                                Ok(data) => watcher_task.domain_event(
+                                    "mail.received",
+                                    "mail",
+                                    Some(&message.message_id),
+                                    data,
+                                ),
+                                Err(e) => tracing::warn!("no se pudo serializar correo: {e}"),
+                            }
+                        }
+                    }
+                    Err(e) => tracing::warn!("no se pudo comprobar el correo: {e}"),
+                }
+            }
+        });
+        Ok(ctx)
     }
 
     /// Emite un evento de dominio para el Automation Engine y, si aplica,

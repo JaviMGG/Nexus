@@ -104,6 +104,12 @@ impl Trigger {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerEntry {
+    pub id: String,
+    pub trigger: Trigger,
+}
+
 // ---------------------------------------------------------------------------
 // Condiciones (árbol AND/OR/NOT + hojas deterministas, nunca SQL libre)
 // ---------------------------------------------------------------------------
@@ -293,7 +299,9 @@ pub struct Automation {
     pub icon: String,
     pub enabled: bool,
     pub mode: AutomationMode,
-    pub trigger: Trigger,
+    pub triggers: Vec<TriggerEntry>,
+    #[serde(default)]
+    pub next_runs: std::collections::HashMap<String, String>,
     pub conditions: Option<Condition>,
     pub flow: AutomationFlow,
     pub permissions: AgentPermissionsLite,
@@ -332,7 +340,8 @@ pub struct CreateAutomation {
     pub icon: String,
     pub enabled: Option<bool>,
     pub mode: Option<AutomationMode>,
-    pub trigger: Trigger,
+    #[serde(default)]
+    pub triggers: Vec<TriggerEntry>,
     pub conditions: Option<Condition>,
     pub flow: Option<AutomationFlow>,
     pub permissions: Option<AgentPermissionsLite>,
@@ -348,7 +357,7 @@ pub struct UpdateAutomation {
     pub icon: Option<String>,
     pub enabled: Option<bool>,
     pub mode: Option<AutomationMode>,
-    pub trigger: Option<Trigger>,
+    pub triggers: Option<Vec<TriggerEntry>>,
     pub conditions: Option<Option<Condition>>,
     pub flow: Option<AutomationFlow>,
     pub permissions: Option<AgentPermissionsLite>,
@@ -563,10 +572,44 @@ pub struct ActionSpec {
     pub entity: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TriggerFieldKind {
+    Text,
+    Date,
+    DateTime,
+    Number,
+    Boolean,
+    Enum,
+    Tags,
+    Id,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerFieldSpec {
+    pub key: String,
+    pub label: String,
+    pub kind: TriggerFieldKind,
+    #[serde(default)]
+    pub options: Vec<String>,
+    #[serde(default)]
+    pub nullable: bool,
+    #[serde(default)]
+    pub hint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerValidationError {
+    pub field: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TriggerSpec {
     pub id: String,
     pub name: String,
     pub description: String,
     pub kind: TriggerKind,
+    #[serde(default)]
+    pub fields: Vec<TriggerFieldSpec>,
 }

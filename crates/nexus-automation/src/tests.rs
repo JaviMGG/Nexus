@@ -11,7 +11,7 @@ use nexus_core::{
     now, AppEvent, AutomationFlow, AutomationLimits, AutomationMode, CompareOp, Condition,
     CreateAutomation, CreateNote, CreateProject, CreateTask, ExecutionFilter, ExecutionPolicy,
     ExecutionStatus, FlowStep, NexusError, NoteKind, Policy, Result, RunStatus, ScheduleSpec,
-    StepKind, StepStatus, Trigger, UpdateAutomation,
+    StepKind, StepStatus, Trigger, TriggerEntry, UpdateAutomation,
 };
 use nexus_db::{repos, Db};
 use nexus_services::Services;
@@ -152,7 +152,10 @@ fn base_create(name: &str) -> CreateAutomation {
         icon: String::new(),
         enabled: Some(true),
         mode: Some(AutomationMode::Local),
-        trigger: manual_trigger(),
+        triggers: vec![TriggerEntry {
+            id: "t0".into(),
+            trigger: manual_trigger(),
+        }],
         conditions: None,
         flow: None,
         permissions: None,
@@ -164,10 +167,27 @@ fn base_create(name: &str) -> CreateAutomation {
 
 fn local_automation(name: &str, trigger: Trigger, f: AutomationFlow) -> CreateAutomation {
     CreateAutomation {
-        trigger,
+        triggers: vec![TriggerEntry {
+            id: "t0".into(),
+            trigger,
+        }],
         flow: Some(f),
         ..base_create(name)
     }
+}
+
+fn trigger_entry(id: &str, trigger: Trigger) -> TriggerEntry {
+    TriggerEntry {
+        id: id.into(),
+        trigger,
+    }
+}
+
+async fn force_due(f: &Fixture, id: &str, trigger_id: &str, when: chrono::DateTime<chrono::Utc>) {
+    let mut a = f.manager.get(id).await.unwrap();
+    a.next_runs.insert(trigger_id.into(), when.to_rfc3339());
+    a.next_run_at = Some(when.to_rfc3339());
+    repos::automations::write(&f.services.db, &a).await.unwrap();
 }
 
 fn manual_trigger() -> Trigger {
@@ -272,6 +292,61 @@ async fn crud_and_validation() {
 
     f.manager.delete(&a.id).await.unwrap();
     assert!(f.manager.get(&a.id).await.is_err());
+}
+
+#[tokio::test]
+async fn automation_accepts_multiple_triggers() {
+    let f = fixture(None).await;
+    let mut data = base_create("Multidisparador");
+    data.triggers = vec![
+        trigger_entry("s1", manual_trigger()),
+        trigger_entry(
+            "e1",
+            Trigger::Event {
+                event: "task.created".into(),
+                filter: json!({}),
+            },
+        ),
+    ];
+    data.flow = Some(flow("n", vec![notify_step("n", "hola", None)]));
+    let a = f.manager.create(data.clone()).await.unwrap();
+    assert_eq!(a.triggers.len(), 2);
+    assert_eq!(a.triggers[1].id, "e1");
+    assert!(a.next_runs.contains_key("s1"));
+    assert!(!a.next_runs.contains_key("e1"));
+    assert_eq!(
+        a.next_run_at.as_deref(),
+        a.next_runs.get("s1").map(String::as_str)
+    );
+
+    data.triggers[1] = trigger_entry(
+        "rota",
+        Trigger::Event {
+            event: "no.existe".into(),
+            filter: json!({}),
+        },
+    );
+    assert!(f.manager.create(data).await.is_err());
+}
+
+#[tokio::test]
+async fn draft_without_triggers_is_saved_but_cannot_be_enabled() {
+    let f = fixture(None).await;
+    let mut data = base_create("Borrador");
+    data.enabled = Some(false);
+    data.triggers = vec![];
+    data.flow = Some(flow("n", vec![notify_step("n", "hola", None)]));
+    let a = f.manager.create(data.clone()).await.unwrap();
+    assert!(a.triggers.is_empty());
+
+    let err = f.manager.set_enabled(&a.id, true).await.unwrap_err();
+    assert!(matches!(err, NexusError::Validation(_)));
+    assert!(err
+        .to_string()
+        .contains("añade al menos un disparador antes de activar"));
+
+    data.enabled = Some(true);
+    assert!(f.manager.create(data).await.is_err());
 }
 
 #[tokio::test]
@@ -547,6 +622,10 @@ async fn interpolation_uses_event_data() {
         .manager
         .execute(
             a,
+            &Trigger::Event {
+                event: "task.created".into(),
+                filter: json!({}),
+            },
             "evento task.created".into(),
             data,
             false,
@@ -605,6 +684,124 @@ async fn event_trigger_fires_on_domain_event() {
 }
 
 #[tokio::test]
+async fn mail_received_subject_contains_filter_fires() {
+    let f = fixture(None).await;
+    f.manager.start();
+    let mut data = base_create("Correos");
+    data.triggers = vec![trigger_entry(
+        "mail",
+        Trigger::Event {
+            event: "mail.received".into(),
+            filter: json!({"account": "principal", "subject~": "factura"}),
+        },
+    )];
+    data.flow = Some(flow(
+        "t",
+        vec![create_task_action("t", "Revisar {{subject}}", None)],
+    ));
+    f.manager.create(data).await.unwrap();
+
+    f.events
+        .send(AppEvent::DomainEvent {
+            event: "mail.received".into(),
+            entity: "mail".into(),
+            entity_id: Some("m1".into()),
+            data: json!({
+                "account_id": "principal",
+                "folder": "INBOX",
+                "from": "proveedor@nexus.dev",
+                "subject": "Factura de marzo",
+                "date": "2026-11-26T10:00:00Z",
+                "snippet": "Adjunto la factura",
+                "message_id": "m1",
+            }),
+        })
+        .unwrap();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let tasks = f.services.tasks.list(Default::default()).await.unwrap();
+        if tasks.iter().any(|t| t.title == "Revisar Factura de marzo") {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "mail.received no disparó la automatización"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+#[tokio::test]
+async fn event_dedupe_is_independent_per_trigger() {
+    let f = fixture(None).await;
+    f.manager.start();
+    let mut data = base_create("Doble disparador");
+    data.policy = Some(ExecutionPolicy::Always);
+    data.triggers = vec![
+        trigger_entry(
+            "a",
+            Trigger::Event {
+                event: "mail.received".into(),
+                filter: json!({}),
+            },
+        ),
+        trigger_entry(
+            "b",
+            Trigger::Event {
+                event: "mail.received".into(),
+                filter: json!({}),
+            },
+        ),
+    ];
+    data.flow = Some(flow("n", vec![notify_step("n", "correo", None)]));
+    f.manager.create(data).await.unwrap();
+
+    for _ in 0..2 {
+        f.events
+            .send(AppEvent::DomainEvent {
+                event: "mail.received".into(),
+                entity: "mail".into(),
+                entity_id: Some("m1".into()),
+                data: json!({"message_id": "m1", "subject": "Aviso"}),
+            })
+            .unwrap();
+    }
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let execs = f
+            .manager
+            .executions(ExecutionFilter::default())
+            .await
+            .unwrap();
+        if execs.len() == 2 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "cada disparador debe ejecutarse una vez: {}",
+            execs.len()
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let execs = f
+        .manager
+        .executions(ExecutionFilter::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        execs.len(),
+        2,
+        "el segundo evento no debe duplicar disparos"
+    );
+    assert!(execs
+        .iter()
+        .all(|e| e.trigger_detail.contains("mail.received")));
+}
+
+#[tokio::test]
 async fn scheduler_fires_due_and_dedupes() {
     let f = fixture(None).await;
     let a = f
@@ -617,10 +814,8 @@ async fn scheduler_fires_due_and_dedupes() {
         .await
         .unwrap();
     // Fuerza un disparo vencido hace 1 minuto (dentro de la ventana de recuperación).
-    let past = (now() - chrono::Duration::minutes(1)).to_rfc3339();
-    repos::automations::set_schedule_state(&f.services.db, &a.id, Some(&past), None)
-        .await
-        .unwrap();
+    let past = now() - chrono::Duration::minutes(1);
+    force_due(&f, &a.id, "t0", past).await;
     f.manager.tick().await.unwrap();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
@@ -663,10 +858,8 @@ async fn stale_schedule_is_skipped_not_replayed() {
         ))
         .await
         .unwrap();
-    let old = (now() - chrono::Duration::hours(3)).to_rfc3339();
-    repos::automations::set_schedule_state(&f.services.db, &a.id, Some(&old), None)
-        .await
-        .unwrap();
+    let old = now() - chrono::Duration::hours(3);
+    force_due(&f, &a.id, "t0", old).await;
     f.manager.tick().await.unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
     let execs = f
@@ -1522,7 +1715,15 @@ async fn sync_execute_helper_for_tests() {
     token.cancel();
     let outcome = f
         .manager
-        .execute(a, "manual".into(), json!({}), false, 0, token)
+        .execute(
+            a,
+            &manual_trigger(),
+            "manual".into(),
+            json!({}),
+            false,
+            0,
+            token,
+        )
         .await
         .unwrap();
     assert_eq!(outcome.execution.status, ExecutionStatus::Cancelled);
